@@ -1,5 +1,5 @@
-# 对外智能客服系统配置文件
-# 说明：敏感凭证（secret 等）优先通过环境变量注入，此处仅放非敏感项。
+# 企业内部知识库问答机器人配置文件
+# 说明：敏感凭证（API Key 等）优先通过环境变量注入，此处仅放非敏感项。
 
 app:
   name: rag-kf-support
@@ -8,33 +8,22 @@ app:
   host: 0.0.0.0
   port: 8000
 
-# 企业微信
-wecom:
-  corpid: ""          # 环境变量 WECOM_CORPID 优先
-  secret: ""          # 环境变量 WECOM_SECRET 优先，严禁提交仓库
-  agentid: 0
-  # 微信客服回调配置
-  callback:
-    token: ""         # 环境变量 WECOM_CALLBACK_TOKEN
-    encoding_aes_key: ""  # 环境变量 WECOM_CALLBACK_AES_KEY
-
-# Redis（access_token 缓存、会话、幂等）
-redis:
-  url: "redis://localhost:6379/0"
-
-# 向量库（M2 使用）
+# 向量库
 vector_db:
   type: chroma        # chroma / milvus
   host: ""
   port: 0
   collection: "kf_knowledge"
+  persist_dir: "data/chroma"
 
-# Embedding 模型（M2 使用）
+# Embedding 模型
 embedding:
-  model: "BAAI/bge-m3"
-  dimension: 1024
+  provider: local     # local / openai
+  model: "BAAI/bge-small-zh-v1.5"
+  dimension: 512
+  device: cpu         # cpu / cuda
 
-# LLM（M3 使用）
+# LLM（留空 api_key 则走降级模式：返回检索片段原文）
 llm:
   provider: deepseek  # deepseek / qwen / hunyuan
   api_key: ""         # 环境变量 LLM_API_KEY
@@ -43,8 +32,13 @@ llm:
   temperature: 0.3
   timeout_seconds: 30
 
-# 合规（M4 使用）
+# 检索
+retrieval:
+  top_k: 5
+  threshold: 0.5      # 相似度低于阈值则判定未命中
+
+# 合规
 compliance:
   sensitive_words: ["底价", "内部", "员工", "领导", "报价单"]
   transfer_keywords: ["人工", "转人工", "投诉"]
-  max_answers_per_48h: 5
+  max_history_rounds: 10

@@ -31,9 +31,13 @@ htmlcov/
 # 日志
 *.log
 
-# 知识库本地数据
-data/
+# 知识库本地数据（向量库持久化产物）
+data/chroma/
+data/*.sqlite3
 chroma_data/
+
+# 但保留示例文档，便于快速演示
+!data/docs/
 
 # 工作区临时目录
 .workbuddy/
