@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# 测试与覆盖率
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 工具
+.mypy_cache/
+.ruff_cache/
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+
+# 环境变量与密钥
+.env
+.env.*
+*.secret
+
+# 日志
+*.log
+
+# 知识库本地数据
+data/
+chroma_data/
+
+# 工作区临时目录
+.workbuddy/
