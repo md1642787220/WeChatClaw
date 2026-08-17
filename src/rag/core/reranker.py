@@ -1,86 +1,81 @@
-"""排序模块：对检索结果做相似度过滤与排序。
+"""排序模块：对检索出来的结果按相似度过滤、排序。
 
-本模块是 RAG 流程中「检索后、生成前」的一环，负责：
-- 按相似度阈值过滤低相关结果；
-- 对命中结果按相似度排序；
-- 将相似度分数写入每个文档的 metadata，便于溯源与展示。
+这个模块管「搜完之后、生成答案之前」的一环，具体干三件事：
+- 按相似度阈值，把不够像的结果丢掉；
+- 把命中的结果按相似度从高到低排好；
+- 把相似度分数写进每个文档的 metadata，方便前面展示。
 
-注意：本模块只做「排序/过滤」这类纯逻辑操作，不依赖向量库或模型，
-保持与其它模块解耦，方便后续替换更复杂的重排策略（如 cross-encoder）。
+注意：这个模块只做「过滤/排序」这类纯逻辑，不碰向量库和模型，
+跟别的模块解耦，以后想换成更复杂的重排策略（比如 cross-encoder）也好替换。
 
 Author: MADENG
 Reviewer: Li Rongdong
 """
-
-from __future__ import annotations
-
 from langchain_core.documents import Document
 
-# 相似度分数写入 metadata 的键名，供上游溯源/展示统一读取
+
+# 相似度分数写进 metadata 时用的键名，前面统一读这个
 SCORE_KEY = "score"
 
 
-# 按相似度阈值过滤检索结果，并写入分数元数据。
+# 按相似度阈值过滤结果，并把分数写进 metadata。
 #
-# Args:
-#     docs: 检索到的文档列表（与 scores 等长）。
-#     scores: 与 docs 一一对应的相似度分数。
-#     threshold: 相似度阈值，低于该值的文档被丢弃。
+# 参数：
+#     doc_list: 搜到的文档列表（和 score_list 一样长）。
+#     score_list: 每个文档对应的相似度分数。
+#     threshold: 相似度阈值，比它低的文档丢掉。
 #
-# Returns:
-#     ``(Document, score)`` 列表，仅包含 >= threshold 的命中项，
-#     分数已四舍五入到 4 位小数并写入 ``doc.metadata["score"]``。
+# 返回：
+#     (文档, 分数) 列表，只留 >= 阈值的，分数已四舍五入到 4 位小数，
+#     并写进了 doc.metadata["score"]。
 #
-# Notes:
-#     不会修改 ``docs`` / ``scores`` 输入本身，
-#     而是返回新列表；但会对 doc 的 metadata 做原地写入（便于下游直接读取）。
-def filter_by_threshold(
-    docs: list[Document],
-    scores: list[float],
-    threshold: float,
-) -> list[tuple[Document, float]]:
-    result: list[tuple[Document, float]] = []
-    for doc, score in zip(docs, scores):
-        if score < threshold:
+# 注意：
+#     不会改原来的 doc_list / score_list，而是返回一个新列表；
+#     但会直接往 doc 的 metadata 里写分数（方便后面直接读）。
+def filter_by_score_threshold(doc_list, score_list, threshold: float):
+    if len(doc_list) != len(score_list):
+        raise ValueError("doc_list 和 score_list 长度必须一样")
+    result_list = []
+    for i in range(len(doc_list)):
+        one_doc = doc_list[i]
+        one_score = score_list[i]
+        if one_score < threshold:
             continue
-        doc.metadata[SCORE_KEY] = round(score, 4)
-        result.append((doc, score))
-    return result
+        one_doc.metadata[SCORE_KEY] = round(one_score, 4)
+        result_list.append((one_doc, one_score))
+    return result_list
 
 
-# 按相似度分数对检索结果排序。
-#
-# Args:
-#     pairs: ``(Document, score)`` 列表。
-#     reverse: True 表示分数从高到低（默认）；False 表示从低到高。
-#
-# Returns:
-#     排序后的 Document 列表（不含分数）。
-#
-# Notes:
-#     排序为稳定排序，分数相同时保持输入相对顺序。
-def sort_by_score(
-    pairs: list[tuple[Document, float]], reverse: bool = True
-) -> list[Document]:
-    pairs = sorted(pairs, key=lambda p: p[1], reverse=reverse)
-    return [doc for doc, _ in pairs]
+# 给 (文档, 分数) 列表按分数排序（稳定排序）。
+def _sort_pairs(pair_list, reverse):
+    return sorted(pair_list, key=lambda p: p[1], reverse=reverse)
 
 
-# 对检索结果执行「阈值过滤 + 排序」的组合操作。
+# 按相似度分数排序，返回文档列表（不含分数）。
 #
-# Args:
-#     docs: 检索到的文档列表。
-#     scores: 对应相似度分数。
+# 参数：
+#     pair_list: (文档, 分数) 列表。
+#     reverse: True 表示从高到低（默认），False 表示从低到高。
+#
+# 返回：
+#     排好序的文档列表（不含分数）。
+def sort_by_score(pair_list, reverse=True):
+    sorted_pairs = _sort_pairs(pair_list, reverse)
+    result_docs = []
+    for one_pair in sorted_pairs:
+        result_docs.append(one_pair[0])
+    return result_docs
+
+
+# 「过滤 + 排序」一起做，是检索器常用的便捷入口。
+#
+# 参数：
+#     doc_list: 搜到的文档列表。
+#     score_list: 对应分数。
 #     threshold: 相似度阈值。
 #
-# Returns:
-#     过滤后按相似度降序排列的 Document 列表。
-#
-# Notes:
-#     该函数等价于 ``sort_by_score(filter_by_threshold(...))``，
-#     是检索器常用的便捷入口。
-def rerank(
-    docs: list[Document], scores: list[float], threshold: float
-) -> list[Document]:
-    pairs = filter_by_threshold(docs, scores, threshold)
-    return sort_by_score(pairs)
+# 返回：
+#     过滤后按相似度从高到低排好的文档列表。
+def filter_and_sort(doc_list, score_list, threshold: float):
+    filtered = filter_by_score_threshold(doc_list, score_list, threshold)
+    return sort_by_score(filtered)

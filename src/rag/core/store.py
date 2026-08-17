@@ -1,21 +1,18 @@
-"""持久化模块：向量库（Chroma）的加载、写入与存在性判断。
+"""持久化模块：负责把向量库（Chroma）读出来、写进去、判断建没建好。
 
-本模块封装对向量库持久化的所有读写操作，是 RAG 流程的「落地层」。
-上层（索引构建、检索器）只通过本模块提供的函数访问向量库，
-不直接操作 Chroma 对象，保持职责单一。
+这个模块管所有跟「存向量」有关的操作，是 RAG 流程的「落地的最后一步」。
+上层（建库、检索）都通过这里的函数来碰向量库，不直接操作 Chroma 对象，
+大家各管一摊，不乱。
 
-设计要点：
-- 用稳定 ID（来源 + 内容哈希）去重，重复入库自动跳过。
-- 维护一个全局索引版本号，供上层感知向量库变更（如缓存失效）。
-- 指定 ``hnsw:space: cosine``，与已 L2 归一化的向量匹配，
-  避免默认 L2 距离导致相似度分数异常。
+几个设计要点：
+- 用「来源 + 内容」算一个固定 ID，重复入库的会自动跳过。
+- 维护一个全局的库版本号，让上层知道库变了（比如好清缓存）。
+- 指定用余弦相似度（hnsw:space: cosine），跟已经归一化的向量对得上，
+  避免默认的 L2 距离把相似度分数算得乱七八糟。
 
 Author: MADENG
 Reviewer: Li Rongdong
 """
-
-from __future__ import annotations
-
 import hashlib
 from pathlib import Path
 
@@ -23,98 +20,89 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 
-# 向量库变更信号：每次入库时递增，供上层判断是否需要重建检索器/缓存
+
+# 库版本号：每入库一次就加一，上层靠它判断要不要重建检索器/缓存
 _index_version = 0
 
-# 集合元数据：指定余弦相似度空间。
-# 本项目向量已做 L2 归一化（见 embedder），余弦相似度值域 [0,1]，越大越相似，
-# 与 Chroma 的 similarity_search_with_relevance_scores 语义一致。
-# 注意：若不指定，Chroma 默认使用 L2 距离（越小越相似，且可 >1），
-# 与归一化向量不匹配，会导致相似度分数异常。
-_COLLECTION_METADATA = {"hnsw:space": "cosine"}
+# 集合元数据：告诉 Chroma 用余弦相似度。
+# 我们项目里的向量已经做过归一化（见 embedder），余弦相似度的范围是 0 到 1，
+# 越大越像，跟 Chroma 的 similarity_search_with_relevance_scores 的意思一致。
+# 注意：不指定的话 Chroma 默认用 L2 距离（越小越像，还可能大于 1），
+# 跟归一化向量对不上，分数会算错。
+_collection_metadata = {"hnsw:space": "cosine"}
 
 
-# 返回当前向量库版本号。
-#
-# Returns:
-#     整数版本号，每次成功入库递增。
-def get_index_version() -> int:
+# 返回当前向量库的版本号。
+def get_index_version():
     return _index_version
 
 
-# 向量库内容变更时调用，递增版本号。
+# 向量库内容变了就调这个，把版本号加一。
 #
-# Notes:
-#     该函数仅修改进程内全局变量，进程重启后归零，
-#     用于在单次进程生命周期内触发缓存失效。
-def bump_index_version() -> None:
+# 注意：
+#     它只改进程里的全局变量，进程重启后就归零了，
+#     作用就是在一个进程的存活期间提醒上层「库变了，快清缓存」。
+def bump_index_version():
     global _index_version
-    _index_version += 1
+    _index_version = _index_version + 1
 
 
-# 基于来源 + 内容生成稳定 ID，重复入库时自动去重。
+# 根据「来源 + 内容」算一个固定 ID，重复入库时自动去重。
 #
-# Args:
-#     doc: 文档块。
+# 参数：
+#     one_doc: 一个文档块。
 #
-# Returns:
-#     MD5 十六进制字符串，作为向量库中的唯一 ID。
+# 返回：
+#     一串 MD5 十六进制文字，作为向量库里的唯一 ID。
 #
-# Notes:
-#     ID 仅依赖 ``source`` 元数据与正文，与向量无关，
-#     保证同一内容多次入库结果一致。
-def _doc_id(doc: Document) -> str:
-    raw = f"{doc.metadata.get('source', '')}\n{doc.page_content}"
-    return hashlib.md5(raw.encode("utf-8")).hexdigest()
+# 注意：
+#     ID 只跟来源和正文有关，跟向量无关，所以同一内容不管入库几次，ID 都一样。
+def _make_doc_id(one_doc: Document):
+    source_value = one_doc.metadata.get("source", "")
+    raw_text = str(source_value) + "\n" + one_doc.page_content
+    md5 = hashlib.md5()
+    md5.update(raw_text.encode("utf-8"))
+    return md5.hexdigest()
 
 
-# 构建向量索引并持久化（全量重建）。
+# 全量建库：把文档块向量化后写进向量库，会覆盖旧的。
 #
-# Args:
-#     docs: 已切分的文档块。
-#     embeddings: Embedding 实例。
+# 参数：
+#     doc_list: 切好的文档块。
+#     embeddings: 向量化工具。
 #     collection_name: 集合名。
-#     persist_dir: 持久化目录。
+#     persist_dir: 存到哪个目录。
 #
-# Returns:
+# 返回：
 #     Chroma 向量库实例。
 #
-# Notes:
-#     该方法会覆盖目标集合的既有内容，适用于离线全量建库场景；
-#     增量场景请使用 ``add_documents``。
-def build_index(
-    docs: list[Document],
-    embeddings: Embeddings,
-    collection_name: str,
-    persist_dir: str,
-) -> Chroma:
+# 注意：
+#     这个方法会覆盖目标集合里原来的内容，适合离线一次性建库；
+#     想增量加的话请用「增量入库」。
+def build_full_index(doc_list, embeddings: Embeddings, collection_name: str, persist_dir: str):
     return Chroma.from_documents(
-        documents=docs,
+        documents=doc_list,
         embedding=embeddings,
         collection_name=collection_name,
-        collection_metadata=_COLLECTION_METADATA,
+        collection_metadata=_collection_metadata,
         persist_directory=persist_dir,
     )
 
 
-# 加载已持久化的向量库（只读打开）。
+# 打开已经存好的向量库（只读打开）。
 #
-# Args:
-#     embeddings: 与建库时一致的 Embedding 实例（维度/模型须匹配）。
+# 参数：
+#     embeddings: 跟建库时一致的向量化工具（模型和维度必须对得上）。
 #     collection_name: 集合名。
-#     persist_dir: 持久化目录。
+#     persist_dir: 存向量库的目录。
 #
-# Returns:
+# 返回：
 #     Chroma 向量库实例。
 #
-# Notes:
-#     调用前应先通过 ``store_exists`` 确认库已构建，
-#     否则 Chroma 会创建一个空库而非报错。
-def load_store(
-    embeddings: Embeddings,
-    collection_name: str,
-    persist_dir: str,
-) -> Chroma:
+# 注意：
+#     调它之前应该先用「向量库存在吗」确认库建好了，
+#     不然 Chroma 会新建一个空库，而不是报错。
+def open_vector_store(embeddings: Embeddings, collection_name: str, persist_dir: str):
     return Chroma(
         embedding_function=embeddings,
         collection_name=collection_name,
@@ -122,72 +110,69 @@ def load_store(
     )
 
 
-# 判断向量库是否已构建。
+# 判断向量库建没建好。
 #
-# Args:
-#     persist_dir: 持久化目录。
-#     collection_name: 集合名（保留参数，供扩展使用，当前未参与判断）。
+# 参数：
+#     persist_dir: 存向量库的目录。
+#     collection_name: 集合名（先留着以后扩展用，现在没参与判断）。
 #
-# Returns:
-#     True 表示向量库已存在。
+# 返回：
+#     建好了返回 True，没建返回 False。
 #
-# Notes:
-#     Chroma 以 ``chroma.sqlite3`` 元数据库文件为标志，
-#     collection 数据存于 UUID 子目录，故仅需判断该文件是否存在。
-def store_exists(persist_dir: str, collection_name: str | None = None) -> bool:
-    base = Path(persist_dir)
-    if not base.exists():
+# 注意：
+#     Chroma 用 chroma.sqlite3 这个元数据库文件当标志，
+#     集合数据存在 UUID 子目录里，所以只要判断这个文件在不在就行。
+def vector_store_exists(persist_dir: str, collection_name=None):
+    base_dir = Path(persist_dir)
+    if not base_dir.exists():
         return False
-    return (base / "chroma.sqlite3").exists()
+    marker_file = base_dir / "chroma.sqlite3"
+    return marker_file.exists()
 
 
-# 增量入库：新增文档块，按稳定 ID 去重。
+# 增量入库：把新文档块加进向量库，按固定 ID 去重。
 #
-# Args:
-#     docs: 待入库的文档块。
-#     embeddings: Embedding 实例。
+# 参数：
+#     doc_list: 要加进去的文档块。
+#     embeddings: 向量化工具。
 #     collection_name: 集合名。
-#     persist_dir: 持久化目录。
+#     persist_dir: 存向量库的目录。
 #
-# Returns:
-#     ``(新增块数, 跳过重复块数)`` 二元组。
+# 返回：
+#     (新增了几块, 跳过了几块重复的)。
 #
-# Notes:
-#     - 已存在集合则加载后追加，否则新建。
-#     - 只有实际新增时才触发索引版本号递增。
-def add_documents(
-    docs: list[Document],
-    embeddings: Embeddings,
-    collection_name: str,
-    persist_dir: str,
-) -> tuple[int, int]:
-    # 已存在的集合则加载，否则创建
-    if store_exists(persist_dir):
-        store = load_store(embeddings, collection_name, persist_dir)
-        existing_ids = set(store.get()["ids"])
+# 注意：
+#     - 集合已存在就打开接着加，不存在就新建。
+#     - 只有真的加了新东西，才会让库版本号加一。
+def add_chunks_to_index(doc_list, embeddings: Embeddings, collection_name: str, persist_dir: str):
+    # 已存在的集合就打开，否则新建
+    if vector_store_exists(persist_dir):
+        store = open_vector_store(embeddings, collection_name, persist_dir)
+        existing = store.get()
+        existing_ids = set(existing["ids"])
     else:
         store = Chroma(
             embedding_function=embeddings,
             collection_name=collection_name,
-            collection_metadata=_COLLECTION_METADATA,
+            collection_metadata=_collection_metadata,
             persist_directory=persist_dir,
         )
-        existing_ids: set[str] = set()
+        existing_ids = set()
 
-    new_docs: list[Document] = []
-    new_ids: list[str] = []
-    skipped = 0
-    for doc in docs:
-        did = _doc_id(doc)
-        if did in existing_ids:
-            skipped += 1
+    new_docs = []
+    new_ids = []
+    skipped_count = 0
+    for one_doc in doc_list:
+        doc_id = _make_doc_id(one_doc)
+        if doc_id in existing_ids:
+            skipped_count = skipped_count + 1
             continue
-        new_docs.append(doc)
-        new_ids.append(did)
-        existing_ids.add(did)
+        new_docs.append(one_doc)
+        new_ids.append(doc_id)
+        existing_ids.add(doc_id)
 
     if new_docs:
         store.add_documents(documents=new_docs, ids=new_ids)
         bump_index_version()
 
-    return len(new_docs), skipped
+    return len(new_docs), skipped_count

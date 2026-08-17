@@ -1,120 +1,122 @@
-"""检索器模块：从向量库生成带相似度阈值过滤的检索器。
+"""检索器模块：从向量库里造一个带相似度阈值过滤的检索器。
 
-本模块是 RAG 流程的「检索入口」，组合 core 层的向量化、持久化、排序模块，
-对上层提供一个 ``BaseRetriever`` 接口。
+这个模块是 RAG 流程的「检索入口」，把 core 层的向量化、存库、排序模块组合起来，
+给上层提供一个 BaseRetriever 接口。
 
-提供模块级缓存：启动时通过 :func:`warmup_retriever` 预加载 embedding 模型
-与向量库，后续请求复用同一实例，避免每次请求都重新加载模型。
+还带一个模块级缓存：启动时用「预热检索器」先把向量化模型和向量库加载好，
+后面的请求直接复用，不用每次请求都重新加载模型。
 
 Author: MADENG
 Reviewer: Li Rongdong
 """
-
-from __future__ import annotations
-
 import logging
-from typing import Any
 
-from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 
 from src.config import Settings
-from src.rag.core.embedder import build_embeddings
-from src.rag.core.reranker import filter_by_threshold
-from src.rag.core.store import load_store, store_exists
+from src.rag.core.embedder import make_embedder
+from src.rag.core.reranker import filter_by_score_threshold
+from src.rag.core.store import open_vector_store, vector_store_exists
 
 logger = logging.getLogger(__name__)
 
-# 模块级缓存：检索器单例，避免重复加载 embedding 模型
-_retriever_cache: dict[str, BaseRetriever] = {}
+# 模块级缓存：检索器单例，避免反复加载向量化模型
+# 键由 存库目录/集合名/模型/设备/取几条/阈值 拼成
+_retriever_cache = {}
 
 
-# 空检索器：向量库未构建时使用，返回空结果。
+# 空检索器：向量库还没建好的时候用，返回空结果。
 #
-# Notes:
-#     该类不加载 embedding 模型，避免服务启动时因库不存在而触发下载。
+# 注意：
+#     这个类不加载向量化模型，避免服务启动时因为库不存在而触发下载。
 class _EmptyRetriever(BaseRetriever):
-    def _get_relevant_documents(self, query: str) -> list[Document]:
+    def _get_relevant_documents(self, query: str):
         return []
 
 
-# 基于相似度阈值过滤的检索器。
+# 按相似度阈值过滤的检索器。
 #
-# Attributes:
+# 属性：
 #     store: Chroma 向量库实例。
-#     top_k: 检索返回的最大文档数。
-#     threshold: 相似度阈值（余弦相似度，值域 [0, 1]）。
+#     top_k: 最多返回几条。
+#     threshold: 相似度阈值（余弦相似度，范围 0 到 1）。
 #
-# Notes:
-#     内部先调用向量库做相似度检索，再用 reranker 模块按阈值过滤。
-#     过滤后的分数会写入 ``doc.metadata["score"]``，供上游溯源展示。
+# 注意：
+#     内部先调向量库做相似度搜索，再用排序模块按阈值过滤。
+#     过滤后的分数会写进 doc.metadata["score"]，给前面展示来源用。
 class ThresholdRetriever(BaseRetriever):
-    store: Any
+    store: object
     top_k: int
     threshold: float
 
-    def _get_relevant_documents(self, query: str) -> list[Document]:
-        results = self.store.similarity_search_with_relevance_scores(
-            query, k=self.top_k
-        )
-        docs = [doc for doc, _ in results]
-        scores = [score for _, score in results]
-        # 交由排序模块做阈值过滤（分数同步写入 metadata["score"]）
-        pairs = filter_by_threshold(docs, scores, self.threshold)
-        return [doc for doc, _ in pairs]
+    def _get_relevant_documents(self, query: str):
+        # 这个函数返回 (文档, 分数) 列表
+        search_results = self.store.similarity_search_with_relevance_scores(query, k=self.top_k)
+        doc_list = []
+        score_list = []
+        for one_pair in search_results:
+            doc_list.append(one_pair[0])
+            score_list.append(one_pair[1])
+        # 交给排序模块按阈值过滤（分数会同步写进 metadata["score"]）
+        filtered_pairs = filter_by_score_threshold(doc_list, score_list, self.threshold)
+        final_docs = []
+        for one_pair in filtered_pairs:
+            final_docs.append(one_pair[0])
+        return final_docs
 
 
-# 根据配置关键字段生成缓存键。
+# 根据配置的关键字段拼一个缓存键。
 #
-# Args:
+# 参数：
 #     settings: 全局配置。
 #
-# Returns:
-#     由向量库路径、集合名、模型名/设备、检索参数拼接的字符串。
+# 返回：
+#     由 存库目录、集合名、模型名/设备、检索参数 拼出来的字符串。
 #
-# Notes:
-#     任一关键字段变化都会产生不同键，从而触发检索器重建。
-def _cache_key(settings: Settings) -> str:
-    return "|".join(
-        [
-            settings.vector_db.persist_dir,
-            settings.vector_db.collection,
-            settings.embedding.model,
-            settings.embedding.device,
-            str(settings.retrieval.top_k),
-            str(settings.retrieval.threshold),
-        ]
-    )
+# 注意：
+#     任何一个关键字段变了，键就不一样，从而触发检索器重建。
+def _make_cache_key(settings: Settings):
+    parts = [
+        settings.vector_db.persist_dir,
+        settings.vector_db.collection,
+        settings.embedding.model,
+        settings.embedding.device,
+        str(settings.retrieval.top_k),
+        str(settings.retrieval.threshold),
+    ]
+    return "|".join(parts)
 
 
-# 构建检索器（带缓存）。
+# 造一个检索器（带缓存）。
 #
-# Args:
+# 参数：
 #     settings: 全局配置。
-#     use_cache: True 时复用缓存的检索器，避免重复加载模型。
+#     use_cache: True 就复用缓存的检索器，避免反复加载模型。
 #
-# Returns:
-#     - 向量库已构建：返回带阈值过滤的检索器。
-#     - 尚未构建：返回空占位检索器（不加载 embedding 模型）。
+# 返回：
+#     - 向量库建好了：返回带阈值过滤的检索器。
+#     - 还没建：返回空占位检索器（不加载向量化模型）。
 #
-# Notes:
-#     首次构建会加载 embedding 模型，成本较高（秒级），
-#     建议通过 :func:`warmup_retriever` 在启动阶段预热。
-def build_retriever(settings: Settings, use_cache: bool = True) -> BaseRetriever:
-    if not store_exists(settings.vector_db.persist_dir, settings.vector_db.collection):
-        logger.info("向量库尚未构建，使用空检索器（请先执行入库）")
+# 注意：
+#     第一次构建要加载向量化模型，比较慢（秒级），
+#     建议启动时用「预热检索器」先加载好。
+def make_retriever(settings: Settings, use_cache=True):
+    if not vector_store_exists(settings.vector_db.persist_dir, settings.vector_db.collection):
+        logger.info("向量库还没建好，先用空检索器（请先入库）")
         return _EmptyRetriever()
 
-    key = _cache_key(settings)
-    if use_cache and key in _retriever_cache:
-        return _retriever_cache[key]
+    cache_key = _make_cache_key(settings)
+    if use_cache:
+        cached_retriever = _retriever_cache.get(cache_key)
+        if cached_retriever is not None:
+            return cached_retriever
 
-    embeddings = build_embeddings(
+    embedder = make_embedder(
         model_name=settings.embedding.model,
         device=settings.embedding.device,
     )
-    store = load_store(
-        embeddings=embeddings,
+    store = open_vector_store(
+        embeddings=embedder,
         collection_name=settings.vector_db.collection,
         persist_dir=settings.vector_db.persist_dir,
     )
@@ -124,36 +126,35 @@ def build_retriever(settings: Settings, use_cache: bool = True) -> BaseRetriever
         threshold=settings.retrieval.threshold,
     )
     if use_cache:
-        _retriever_cache[key] = retriever
+        _retriever_cache[cache_key] = retriever
     return retriever
 
 
-# 启动预热：预加载 embedding 模型与向量库，填充缓存。
+# 启动时预热：先把向量化模型和向量库加载好，填进缓存。
 #
-# Args:
+# 参数：
 #     settings: 全局配置。
 #
-# Notes:
-#     在 FastAPI lifespan 中调用，使首个 /chat、/kb/search 请求不再
-#     承担模型加载开销，实现「启动完成后知识库即就绪」。
-#     向量库未构建时直接跳过，降级为首次检索时懒加载。
-def warmup_retriever(settings: Settings) -> None:
-    if not store_exists(settings.vector_db.persist_dir, settings.vector_db.collection):
-        logger.info("向量库尚未构建，跳过预热（可在管理后台入库后重启或首次检索时自动加载）")
+# 注意：
+#     在 FastAPI 启动时调用，让第一个 /chat、/kb/search 请求不用再扛模型加载的开销。
+#     向量库还没建的话直接跳过，降级成第一次检索时再加载。
+def warm_up_retriever(settings: Settings):
+    if not vector_store_exists(settings.vector_db.persist_dir, settings.vector_db.collection):
+        logger.info("向量库还没建好，跳过预热（入库后重启或首次检索时会自动加载）")
         return
     logger.info(
-        "预热知识库：加载 embedding 模型与向量库（persist_dir=%s, collection=%s）...",
+        "预热知识库：加载向量化模型和向量库（persist_dir=%s, collection=%s）...",
         settings.vector_db.persist_dir,
         settings.vector_db.collection,
     )
-    build_retriever(settings, use_cache=True)
-    logger.info("知识库预热完成，后续请求将直接复用缓存的检索器。")
+    make_retriever(settings, use_cache=True)
+    logger.info("知识库预热完成，后面的请求会直接复用缓存的检索器。")
 
 
-# 向量库内容变更（入库）后调用，清除缓存以便下次重建。
+# 向量库内容变了（入库）后调这个，清掉缓存好下次重建。
 #
-# Notes:
-#     调用后下一个检索请求会重新加载向量库与 embedding，
-#     从而反映最新入库的数据。
-def invalidate_retriever_cache() -> None:
+# 注意：
+#     调了之后，下一个检索请求会重新加载向量库和向量化模型，
+#     这样就能反映最新入库的数据。
+def clear_retriever_cache():
     _retriever_cache.clear()
