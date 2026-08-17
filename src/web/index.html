@@ -36,7 +36,40 @@
             color: #fff;
             font-size: 18px;
             font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
+        .token-badge {
+            font-size: 12px;
+            font-weight: 500;
+            background: rgba(255,255,255,0.2);
+            padding: 4px 12px;
+            border-radius: 20px;
+        }
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ececf1;
+        }
+        .tabs button {
+            flex: 1;
+            padding: 12px 0;
+            border: none;
+            background: transparent;
+            font-size: 15px;
+            color: #8a8f99;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+        .tabs button.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+            font-weight: 600;
+        }
+        .panel { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+        .panel.active { display: flex; }
+
+        /* 聊天面板 */
         .messages {
             flex: 1;
             overflow-y: auto;
@@ -71,6 +104,63 @@
             font-size: 12px;
             color: #8a8f99;
         }
+        .msg sup.cite {
+            display: inline-block;
+            margin: 0 1px;
+            padding: 0 5px;
+            font-size: 11px;
+            line-height: 16px;
+            vertical-align: super;
+            background: #eef1fe;
+            color: var(--primary);
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .msg sup.cite:hover { background: #dbe2fd; }
+        .msg .cite-row {
+            margin-top: 8px;
+            padding-top: 6px;
+            border-top: 1px dashed #ececf1;
+        }
+        .msg .src-panel {
+            margin-top: 8px;
+            border: 1px solid #ececf1;
+            border-radius: 8px;
+            background: #fafbfc;
+            overflow: hidden;
+        }
+        .msg .src-panel .src-head {
+            padding: 7px 12px;
+            background: #eef1fe;
+            color: var(--primary);
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .msg .src-panel .src-body {
+            padding: 10px 12px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #3a3f47;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 240px;
+            overflow-y: auto;
+        }
+        .toolbar {
+            padding: 6px 16px 8px;
+            border-top: 1px solid #f0f0f4;
+            background: #fafbfc;
+        }
+        .toolbar .opt {
+            font-size: 12px;
+            color: #8a8f99;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+        }
+        .toolbar .opt input { cursor: pointer; }
         .input-area {
             display: flex;
             padding: 14px 16px;
@@ -100,23 +190,259 @@
             cursor: pointer;
         }
         .input-area button:disabled { background: #b6c0f7; cursor: not-allowed; }
+
+        /* 知识库分片面板 */
+        .kb-panel { padding: 16px 20px; overflow-y: auto; }
+        .kb-toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .kb-toolbar .hint {
+            font-size: 13px;
+            color: #8a8f99;
+            flex: 1 1 100%;
+        }
+        .kb-btn {
+            padding: 9px 18px;
+            border: none;
+            border-radius: 8px;
+            background: var(--primary);
+            color: #fff;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .kb-btn.ghost {
+            background: #fff;
+            color: var(--primary);
+            border: 1px solid var(--primary);
+        }
+        .kb-btn:disabled { background: #b6c0f7; cursor: not-allowed; }
+        .kb-summary {
+            font-size: 13px;
+            color: #8a8f99;
+            margin-bottom: 12px;
+        }
+        .kb-file {
+            border: 1px solid #ececf1;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+        .kb-file-head {
+            padding: 10px 14px;
+            background: #fafbfc;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+        }
+        .kb-file-head .count { color: #8a8f99; font-weight: 400; }
+        .kb-chunk {
+            padding: 12px 14px;
+            border-top: 1px solid #f0f0f4;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .kb-chunk .idx {
+            display: inline-block;
+            background: #eef1fe;
+            color: var(--primary);
+            border-radius: 4px;
+            padding: 1px 8px;
+            font-size: 12px;
+            margin-bottom: 6px;
+        }
+        .kb-chunk .content { white-space: pre-wrap; word-break: break-word; color: #3a3f47; }
+        .kb-chunk .meta { margin-top: 6px; font-size: 12px; color: #b0b5bf; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">企业内部知识库问答助手</div>
-        <div class="messages" id="messages"></div>
-        <div class="input-area">
-            <textarea id="input" placeholder="请输入您的问题..." rows="1"></textarea>
-            <button id="send">发送</button>
+        <div class="header">
+            企业内部知识库问答助手
+            <span class="token-badge" id="roundBadge">本轮: 0</span>
+            <span class="token-badge" id="tokenBadge">Tokens: 0</span>
+        </div>
+        <div class="tabs">
+            <button id="tab-chat" class="active" onclick="switchTab('chat')">问答</button>
+            <button id="tab-kb" onclick="openKbTab()">🔒 知识库管理</button>
+        </div>
+
+        <!-- 聊天面板 -->
+        <div class="panel active" id="panel-chat">
+            <div class="messages" id="messages"></div>
+            <div class="input-area">
+                <textarea id="input" placeholder="请输入您的问题..." rows="1"></textarea>
+                <button id="send">发送</button>
+                <button id="stop" style="display:none; background:#e5484d;">停止</button>
+            </div>
+            <div class="toolbar">
+                <label class="opt"><input type="checkbox" id="showSources" checked> 显示来源引用</label>
+            </div>
+        </div>
+
+        <!-- 知识库分片面板 -->
+        <div class="panel" id="panel-kb">
+            <div class="kb-panel">
+                <div class="kb-toolbar">
+                    <input type="file" id="fileInput" webkitdirectory multiple style="display:none" />
+                    <button class="kb-btn" id="btnSelectDir">选择文件夹</button>
+                    <button class="kb-btn ghost" id="btnSplit" disabled>开始分片</button>
+                    <button class="kb-btn" id="btnIndex" disabled>向量化入库</button>
+                    <button class="kb-btn ghost" id="btnSplitToFile" disabled>分片并保存</button>
+                    <div class="hint" id="fileHint">支持选择文件夹，上传其中所有 .md / .txt 文档</div>
+                </div>
+                <div class="kb-summary" id="kbSummary"></div>
+                <div id="kbResult"></div>
+            </div>
         </div>
     </div>
 
     <script>
+        // ===== 管理员令牌 =====
+        // 普通用户看不到知识库管理面板；管理员输入令牌后，前端用 X-Admin-Token 调用 /kb/*。
+        let adminToken = null;  // 仅保存在内存（刷新即失效），不落盘
+
+        async function verifyAdminToken(token) {
+            // 用一次实际请求校验令牌：/kb/search 是 GET，返回 403 表示令牌无效
+            try {
+                const resp = await fetch("/kb/search?query=__probe__", {
+                    method: "GET",
+                    headers: { "X-Admin-Token": token },
+                });
+                return resp.status !== 403;  // 非 403 即视为令牌有效（或鉴权已关闭）
+            } catch (e) {
+                return false;
+            }
+        }
+
+        async function openKbTab() {
+            if (!adminToken) {
+                const input = prompt("请输入管理员令牌（X-Admin-Token）：", "");
+                if (!input) return;  // 取消
+                const ok = await verifyAdminToken(input.trim());
+                if (!ok) {
+                    alert("令牌无效或无权限访问管理接口。");
+                    return;
+                }
+                adminToken = input.trim();
+            }
+            switchTab("kb");
+        }
+
+        // ===== Tab 切换 =====
+        function switchTab(name) {
+            document.getElementById("tab-chat").classList.toggle("active", name === "chat");
+            document.getElementById("tab-kb").classList.toggle("active", name === "kb");
+            document.getElementById("panel-chat").classList.toggle("active", name === "chat");
+            document.getElementById("panel-kb").classList.toggle("active", name === "kb");
+        }
+
+        // ===== 聊天 =====
         let sessionId = null;
+        let currentController = null;   // 用于中断当前流式请求
+        let streamingMsg = null;        // 正在流式渲染的消息节点
+        let typewriterQueue = "";       // 打字机缓冲：待逐字显示的文本
+        let typewriterTimer = null;     // 打字机定时器
+        let streamFinished = false;     // 流是否已结束
+        let currentSources = [];        // 当前回答的来源列表（对象数组）
         const messages = document.getElementById("messages");
         const input = document.getElementById("input");
         const sendBtn = document.getElementById("send");
+        const stopBtn = document.getElementById("stop");
+        const tokenBadge = document.getElementById("tokenBadge");
+        const roundBadge = document.getElementById("roundBadge");
+
+        // 打字机：每 ~30ms 从队列吐出一个字符
+        function startTypewriter() {
+            if (typewriterTimer) return;
+            typewriterTimer = setInterval(() => {
+                if (typewriterQueue.length > 0) {
+                    const ch = typewriterQueue[0];
+                    typewriterQueue = typewriterQueue.slice(1);
+                    if (streamingMsg) {
+                        streamingMsg.textContent += ch;
+                        messages.scrollTop = messages.scrollHeight;
+                    }
+                } else if (streamFinished) {
+                    // 队列空且流已结束：追加引用标记后停止
+                    appendCitations();
+                    stopTypewriter();
+                }
+            }, 30);
+        }
+
+        // 在消息末尾追加论文式上标引用 [1] [2]：可点击展开对应知识片段
+        function appendCitations() {
+            if (!streamingMsg || !currentSources.length) return;
+            const show = document.getElementById("showSources").checked;
+            if (!show) return;
+
+            // 引用行容器
+            const citeRow = document.createElement("div");
+            citeRow.className = "cite-row";
+            currentSources.forEach((src) => {
+                const sup = document.createElement("sup");
+                sup.className = "cite";
+                sup.textContent = `[${src.index}]`;
+                sup.title = src.source;
+                sup.addEventListener("click", () => toggleSourcePanel(src));
+                citeRow.appendChild(sup);
+            });
+            streamingMsg.appendChild(citeRow);
+
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        // 点击引用编号：在消息下方展开/收起对应知识片段内容
+        function toggleSourcePanel(src) {
+            const key = `src-panel-${src.index}`;
+            const existing = streamingMsg.querySelector("." + key);
+            if (existing) {
+                existing.remove();
+                return;
+            }
+            const panel = document.createElement("div");
+            panel.className = "src-panel " + key;
+            const score = src.score != null ? `（相关度 ${Number(src.score).toFixed(3)}）` : "";
+            let bodyHtml;
+            if (src.content) {
+                // 管理员预览模式（后端返回了原文明文）
+                bodyHtml = escapeHtml(src.content);
+            } else {
+                // 普通用户模式：不展示原文明文，仅说明来源文件名
+                bodyHtml =
+                    "（原文不对外开放，仅管理员可在「知识库管理」后台预览。）" +
+                    `\n该来源共命中 ${src.chunk_count || 1} 个片段。`;
+            }
+            panel.innerHTML =
+                `<div class="src-head">${escapeHtml(src.source)}${escapeHtml(score)}</div>` +
+                `<div class="src-body">${bodyHtml}</div>`;
+            streamingMsg.appendChild(panel);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function stopTypewriter() {
+            if (typewriterTimer) {
+                clearInterval(typewriterTimer);
+                typewriterTimer = null;
+            }
+        }
+
+        function updateTokenBadge(tokens) {
+            if (!tokens) return;
+            tokenBadge.textContent = `Tokens: ${tokens.total_tokens}`;
+        }
+
+        function updateRoundBadge(round) {
+            if (!round) return;
+            roundBadge.textContent = `本轮: ${round.total_tokens}`;
+        }
 
         function addMsg(text, role, sources) {
             const div = document.createElement("div");
@@ -130,6 +456,7 @@
             }
             messages.appendChild(div);
             messages.scrollTop = messages.scrollHeight;
+            return div;
         }
 
         async function send() {
@@ -138,33 +465,262 @@
             addMsg(q, "user");
             input.value = "";
             sendBtn.disabled = true;
+            stopBtn.style.display = "";
+            currentController = new AbortController();
+            typewriterQueue = "";
+            streamFinished = false;
+            currentSources = [];
+
+            // 创建流式渲染的机器人消息节点
+            streamingMsg = addMsg("", "bot");
+            startTypewriter();
 
             try {
                 const resp = await fetch("/chat", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ question: q, session_id: sessionId }),
+                    signal: currentController.signal,
                 });
-                const data = await resp.json();
-                sessionId = data.session_id || sessionId;
-                addMsg(data.answer, "bot", data.sources);
+
+                if (!resp.ok || !resp.body) {
+                    throw new Error("请求失败");
+                }
+
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder("utf-8");
+                let buffer = "";
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // 按 SSE 空行分隔事件
+                    let idx;
+                    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+                        const raw = buffer.slice(0, idx);
+                        buffer = buffer.slice(idx + 2);
+                        handleSseLine(raw);
+                    }
+                }
             } catch (e) {
-                addMsg("请求失败，请稍后重试。", "bot");
+                if (e.name === "AbortError") {
+                    // 用户主动停止：清空待显示队列，立即收尾
+                    typewriterQueue = "";
+                    streamFinished = true;
+                    stopTypewriter();
+                } else {
+                    typewriterQueue += "请求失败，请稍后重试。";
+                    streamFinished = true;
+                }
             } finally {
+                currentController = null;
+                // 标记流结束；打字机队列排空后定时器会自行停止
+                streamFinished = true;
                 sendBtn.disabled = false;
+                stopBtn.style.display = "none";
                 input.focus();
             }
         }
 
-        sendBtn.addEventListener("click", send);
-        input.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send();
+        function handleSseLine(raw) {
+            if (!raw.startsWith("data:")) return;
+            const payload = raw.slice(5).trim();
+            if (!payload) return;
+            let data;
+            try {
+                data = JSON.parse(payload);
+            } catch (e) {
+                return;
             }
+
+            switch (data.type) {
+                case "meta":
+                    sessionId = data.session_id || sessionId;
+                    updateTokenBadge(data.tokens);
+                    break;
+                case "sources":
+                    // 保存来源，打字机结束后以 [1][2] 上标形式展示
+                    currentSources = data.sources || [];
+                    break;
+                case "delta":
+                    // 进入打字机队列，由定时器逐字渲染
+                    typewriterQueue += data.content;
+                    break;
+                case "done":
+                    updateTokenBadge(data.tokens);
+                    updateRoundBadge(data.round_tokens);
+                    streamFinished = true;
+                    break;
+                case "blocked":
+                    if (streamingMsg) {
+                        typewriterQueue += data.answer;
+                        streamFinished = true;
+                    }
+                    break;
+                case "error":
+                    if (streamingMsg) {
+                        typewriterQueue += (data.message || "生成失败，请重试。");
+                        streamFinished = true;
+                    }
+                    break;
+            }
+        }
+
+        function stopStreaming() {
+            if (currentController) {
+                currentController.abort();
+            }
+            // 立即清空打字机队列，停止输出
+            typewriterQueue = "";
+            streamFinished = true;
+        }
+
+        sendBtn.addEventListener("click", send);
+        stopBtn.addEventListener("click", stopStreaming);
+        input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+        });
+        addMsg("您好，我是企业内部知识库助手，请问有什么可以帮您？", "bot");
+
+        // ===== 知识库分片 =====
+        const fileInput = document.getElementById("fileInput");
+        const btnSelectDir = document.getElementById("btnSelectDir");
+        const btnSplit = document.getElementById("btnSplit");
+        const btnIndex = document.getElementById("btnIndex");
+        const btnSplitToFile = document.getElementById("btnSplitToFile");
+        const fileHint = document.getElementById("fileHint");
+        const kbSummary = document.getElementById("kbSummary");
+        const kbResult = document.getElementById("kbResult");
+
+        btnSelectDir.addEventListener("click", () => fileInput.click());
+
+        function setBusy(busy) {
+            btnSplit.disabled = busy;
+            btnIndex.disabled = busy;
+            btnSplitToFile.disabled = busy;
+        }
+
+        fileInput.addEventListener("change", () => {
+            const files = Array.from(fileInput.files);
+            if (!files.length) return;
+            fileHint.textContent = `已选择 ${files.length} 个文件`;
+            btnSplit.disabled = false;
+            btnIndex.disabled = false;
+            btnSplitToFile.disabled = false;
         });
 
-        addMsg("您好，我是企业内部知识库助手，请问有什么可以帮您？", "bot");
+        function buildFormData() {
+            const fd = new FormData();
+            Array.from(fileInput.files).forEach((f) => fd.append("files", f));
+            return fd;
+        }
+
+        // 构造带管理员令牌的请求头
+        function adminHeaders(extra) {
+            const h = Object.assign({}, extra);
+            if (adminToken) h["X-Admin-Token"] = adminToken;
+            return h;
+        }
+
+        // 统一处理 /kb/* 的鉴权失败
+        async function adminFetch(url, opts) {
+            const resp = await fetch(url, opts);
+            if (resp.status === 403) {
+                adminToken = null;  // 令牌失效，要求重新登录
+                throw new Error("权限不足：管理员令牌无效或已失效，请重新登录。");
+            }
+            if (!resp.ok) {
+                let detail = "";
+                try { detail = (await resp.json()).detail || ""; } catch (e) {}
+                throw new Error(detail || `请求失败(${resp.status})`);
+            }
+            return resp;
+        }
+
+        async function doSplit(saveToFile) {
+            if (!fileInput.files.length) return;
+            setBusy(true);
+            kbSummary.textContent = "分片中...";
+            try {
+                // 分片并保存：显式请求 save=true（仅管理员、且落盘需主动开启）
+                const url = saveToFile ? "/kb/split-to-file?save=true" : "/kb/split";
+                const resp = await adminFetch(url, {
+                    method: "POST",
+                    headers: adminHeaders(),
+                    body: buildFormData(),
+                });
+                const data = await resp.json();
+                renderChunks(data);
+            } catch (e) {
+                kbSummary.textContent = "分片失败：" + e.message;
+            } finally {
+                setBusy(false);
+            }
+        }
+
+        async function doIndex() {
+            if (!fileInput.files.length) return;
+            setBusy(true);
+            kbSummary.textContent = "向量化入库中（含 embedding 计算，可能较慢）...";
+            try {
+                const resp = await adminFetch("/kb/index", {
+                    method: "POST",
+                    headers: adminHeaders(),
+                    body: buildFormData(),
+                });
+                const data = await resp.json();
+                kbResult.innerHTML = "";
+                kbSummary.textContent =
+                    `入库完成 | 新增 ${data.indexed} 块，跳过重复 ${data.skipped} 块，` +
+                    `共 ${data.total_chunks} 块，集合：${data.collection}`;
+            } catch (e) {
+                kbSummary.textContent = "入库失败，请重试。";
+            } finally {
+                setBusy(false);
+            }
+        }
+
+        function renderChunks(data) {
+            kbResult.innerHTML = "";
+            kbSummary.textContent = `共 ${data.files.length} 个文件，${data.total_chunks} 个分片` +
+                (data.output_dir ? ` | 已输出到: ${data.output_dir}` : "");
+
+            data.files.forEach((fr) => {
+                const fileDiv = document.createElement("div");
+                fileDiv.className = "kb-file";
+
+                const head = document.createElement("div");
+                head.className = "kb-file-head";
+                head.innerHTML = `<span>${escapeHtml(fr.filename)}</span><span class="count">${fr.chunk_count} 块</span>`;
+                fileDiv.appendChild(head);
+
+                fr.chunks.forEach((c) => {
+                    const chunk = document.createElement("div");
+                    chunk.className = "kb-chunk";
+                    const metaStr = Object.entries(c.metadata || {})
+                        .map(([k, v]) => `${k}: ${v}`).join(" | ");
+                    chunk.innerHTML =
+                        `<span class="idx">#${c.index}</span>` +
+                        `<div class="content">${escapeHtml(c.content)}</div>` +
+                        (metaStr ? `<div class="meta">${escapeHtml(metaStr)}</div>` : "");
+                    fileDiv.appendChild(chunk);
+                });
+
+                kbResult.appendChild(fileDiv);
+            });
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, (c) => ({
+                "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+            }[c]));
+        }
+
+        btnSplit.addEventListener("click", () => doSplit(false));
+        btnIndex.addEventListener("click", doIndex);
+        btnSplitToFile.addEventListener("click", () => doSplit(true));
     </script>
 </body>
 </html>

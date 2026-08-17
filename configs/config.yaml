@@ -17,13 +17,17 @@ vector_db:
   persist_dir: "data/chroma"
 
 # Embedding 模型
+# bge-small-zh-v1.5：约 95MB、512 维，轻量中文模型，CPU 可离线跑
 embedding:
-  provider: local     # local / openai
+  provider: local     # local
   model: "BAAI/bge-small-zh-v1.5"
   dimension: 512
   device: cpu         # cpu / cuda
 
 # LLM（留空 api_key 则走降级模式：返回检索片段原文）
+# api_key 请通过环境变量 LLM_API_KEY 注入，勿明文提交到仓库
+# 系统角色：调用 LLM 时 messages[0].role="system"，content 以该角色身份进行回复。
+# 详见 README「LLM 调用 role 规范」一节。
 llm:
   provider: deepseek  # deepseek / qwen / hunyuan
   api_key: ""         # 环境变量 LLM_API_KEY
@@ -31,6 +35,13 @@ llm:
   model: "deepseek-chat"
   temperature: 0.3
   timeout_seconds: 30
+  system_role: "知识库助手"
+
+# 管理员鉴权：保护 /kb/* 管理接口（上传/分片/入库/预览原文）。
+# token 请通过环境变量 ADMIN_TOKEN 注入（或 .env），勿明文提交到仓库。
+# 为空则关闭鉴权（仅建议本地开发使用）。
+admin:
+  token: ""  # 环境变量 ADMIN_TOKEN
 
 # 检索
 retrieval:

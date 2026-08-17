@@ -1,37 +1,32 @@
 """FastAPI 应用入口：企业内部知识库问答机器人。"""
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.chat.session import SessionManager
 from src.compliance.filter import check_compliance, desensitize
 from src.config import Settings, load_settings
+from src.knowledge.api import router as kb_router
 from src.logging_conf import setup_logging
-from src.rag.engine import build_chat_handler
+from src.rag.engine import stream_chat
 
 logger = logging.getLogger(__name__)
 
 settings: Settings = load_settings()
 session_manager = SessionManager(max_rounds=settings.compliance.max_history_rounds)
-chat_handler = build_chat_handler(settings)
 
 
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     session_id: str | None = None
-
-
-class ChatResponse(BaseModel):
-    answer: str
-    sources: list[str] = []
-    session_id: str | None = None
-    blocked: bool = False
 
 
 @asynccontextmanager
@@ -44,6 +39,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app.name, version="0.1.0", lifespan=lifespan)
 
+# 知识库管理接口（上传 + 分片）
+app.include_router(kb_router)
+
 
 @app.get("/healthz")
 async def healthz() -> dict:
@@ -51,41 +49,86 @@ async def healthz() -> dict:
     return {"status": "ok", "env": settings.app.env}
 
 
-@app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest) -> ChatResponse:
-    """问答接口：合规检查 → 检索生成 → 脱敏返回。"""
+@app.post("/chat")
+async def chat(req: ChatRequest) -> StreamingResponse:
+    """问答接口（SSE 流式）：合规检查 → 流式生成 → 脱敏，支持前端中断。
+
+    事件类型：
+      - blocked：命中敏感词，直接结束
+      - meta：会话信息（session_id、累计 tokens）
+      - sources：检索命中的来源
+      - delta：生成内容片段
+      - done：本轮结束（含本轮 tokens）
+      - error：处理出错
+    """
     # 1. 合规检查
     ok, hit_word = check_compliance(req.question, settings.compliance.sensitive_words)
     if not ok:
         logger.warning("命中敏感词 | word=%s", hit_word)
-        return ChatResponse(
-            answer="抱歉，您的问题涉及敏感信息，暂时无法回答。",
-            blocked=True,
-            session_id=req.session_id,
+
+        async def _blocked_stream() -> AsyncIterator[str]:
+            yield _sse({"type": "blocked", "answer": "抱歉，您的问题涉及敏感信息，暂时无法回答。"})
+
+        return StreamingResponse(_blocked_stream(), media_type="text/event-stream")
+
+    session_id = req.session_id or session_manager.create()
+
+    async def _stream() -> AsyncIterator[str]:
+        # 先记录用户提问
+        session_manager.append(session_id, "user", req.question)
+
+        # 发送 meta（会话 id + 当前累计 token）
+        yield _sse(
+            {"type": "meta", "session_id": session_id, "tokens": session_manager.get_tokens(session_id)}
         )
 
-    # 2. 会话上下文
-    session_id = req.session_id or session_manager.create()
-    history = session_manager.get_history(session_id)
+        history = session_manager.get_history(session_id)
+        full_answer: list[str] = []
+        prompt_tokens = 0
+        completion_tokens = 0
+        try:
+            for event in stream_chat(settings, req.question, history):
+                etype = event.get("type")
+                if etype == "sources":
+                    yield _sse({"type": "sources", "sources": event.get("sources", [])})
+                elif etype == "delta":
+                    piece = event.get("content", "")
+                    full_answer.append(piece)
+                    # 逐块脱敏（仅对当前块做，避免跨块边界问题）
+                    yield _sse({"type": "delta", "content": desensitize(piece)})
+                elif etype == "done":
+                    prompt_tokens = event.get("tokens", {}).get("prompt_tokens", 0)
+                    completion_tokens = event.get("tokens", {}).get("completion_tokens", 0)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("流式生成失败")
+            yield _sse({"type": "error", "message": "生成失败，请重试。"})
+            return
 
-    # 3. RAG 生成
-    try:
-        result = chat_handler(req.question, history)
-    except Exception as e:  # noqa: BLE001
-        logger.exception("问答处理失败")
-        raise HTTPException(status_code=500, detail="内部处理错误") from e
+        # 累计 token
+        session_manager.add_tokens(
+            session_id, prompt=prompt_tokens, completion=completion_tokens
+        )
+        # 记录助手回答
+        session_manager.append(session_id, "assistant", "".join(full_answer))
 
-    answer = desensitize(result.get("answer", ""))
+        yield _sse(
+            {
+                "type": "done",
+                "tokens": session_manager.get_tokens(session_id),
+                "round_tokens": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                },
+            }
+        )
 
-    # 4. 记录本轮对话
-    session_manager.append(session_id, "user", req.question)
-    session_manager.append(session_id, "assistant", answer)
+    return StreamingResponse(_stream(), media_type="text/event-stream")
 
-    return ChatResponse(
-        answer=answer,
-        sources=result.get("sources", []),
-        session_id=session_id,
-    )
+
+def _sse(data: dict[str, Any]) -> str:
+    """将 dict 序列化为 SSE 事件字符串。"""
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 # 网页前端静态资源

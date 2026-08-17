@@ -26,6 +26,7 @@ htmlcov/
 # 环境变量与密钥
 .env
 .env.*
+!.env.example
 *.secret
 
 # 日志
@@ -36,8 +37,18 @@ data/chroma/
 data/*.sqlite3
 chroma_data/
 
+# 分片明文产物（管理员可选落盘，勿提交原文明文）
+data/chunks/
+
+# 本地下载的模型权重（体积大，通过 scripts/download_model.py 重新获取）
+models/
+
 # 但保留示例文档，便于快速演示
 !data/docs/
 
 # 工作区临时目录
 .workbuddy/
+
+# 临时测试/调试文件
+_tmp_*
+scripts/_tmp_*
