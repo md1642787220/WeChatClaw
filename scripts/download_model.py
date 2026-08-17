@@ -1,6 +1,9 @@
 """从 HF 缓存复制模型到项目 models/ 目录（离线固化，无需网络）。
 
 优先使用已下载到本地缓存的模型；若缓存不存在，则回退到镜像下载。
+
+Author: MADENG
+Reviewer: Li Rongdong
 """
 from __future__ import annotations
 
@@ -16,8 +19,14 @@ from huggingface_hub import scan_cache_dir, snapshot_download  # noqa: E402
 MODELS_DIR = Path("models")
 
 
+# 在 HF 缓存中查找模型，返回最新快照目录。
+#
+# Args:
+#     repo_id: 仓库 id（如 ``BAAI/bge-small-zh-v1.5``）。
+#
+# Returns:
+#     最新快照的本地路径；未找到或扫描失败时返回 ``None``。
 def _resolve_cache_path(repo_id: str) -> Path | None:
-    """在 HF 缓存中查找模型，返回最新快照目录。"""
     try:
         for repo in scan_cache_dir().repos:
             if repo.repo_id == repo_id and repo.revisions:
@@ -28,14 +37,27 @@ def _resolve_cache_path(repo_id: str) -> Path | None:
     return None
 
 
+# 递归复制目录（目标存在则先删除）。
+#
+# Args:
+#     src: 源目录。
+#     dst: 目标目录。
 def _copy_tree(src: Path, dst: Path) -> None:
     if dst.exists():
         shutil.rmtree(dst)
     shutil.copytree(src, dst)
 
 
+# 固话模型到 models/ 目录：优先从本地缓存复制，否则镜像下载。
+#
+# Args:
+#     model_name: 模型名。
+#     endpoint: 可选自定义镜像地址。
+#     force: True 时强制重新固化（即使目标已存在）。
+#
+# Returns:
+#     固化后的本地目录路径。
 def download(model_name: str, endpoint: str | None = None, force: bool = False) -> Path:
-    """固话模型到 models/ 目录：优先从本地缓存复制，否则镜像下载。"""
     if endpoint:
         os.environ["HF_ENDPOINT"] = endpoint
 
@@ -65,6 +87,7 @@ def download(model_name: str, endpoint: str | None = None, force: bool = False) 
     return target
 
 
+# 命令行入口：解析参数并执行 :func:`download`。
 def main() -> None:
     import argparse
 

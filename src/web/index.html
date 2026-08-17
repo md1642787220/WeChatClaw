@@ -1,6 +1,10 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+    <!--
+        Author: Chen Bin
+        Reviewer: Li Shuhui
+    -->
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>企业内部知识库问答</title>
@@ -21,6 +25,7 @@
             justify-content: center;
             align-items: center;
         }
+
         .container {
             width: 100%;
             max-width: 720px;
@@ -47,6 +52,30 @@
             padding: 4px 12px;
             border-radius: 20px;
         }
+        /* 管理员入口小图标 */
+        .admin-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.16);
+            color: #fff;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.18s, transform 0.18s, box-shadow 0.18s;
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25);
+        }
+        .admin-icon:hover {
+            background: rgba(255,255,255,0.30);
+            transform: scale(1.08);
+        }
+        .admin-icon svg { width: 18px; height: 18px; display: block; }
+        .admin-icon.logged {
+            background: rgba(67, 200, 120, 0.55);
+            box-shadow: inset 0 0 0 1px rgba(67, 200, 120, 0.8), 0 0 8px rgba(67, 200, 120, 0.5);
+        }
         .tabs {
             display: flex;
             border-bottom: 1px solid #ececf1;
@@ -66,6 +95,9 @@
             border-bottom-color: var(--primary);
             font-weight: 600;
         }
+        /* 「知识库管理」tab 默认隐藏，仅管理员登录后显示 */
+        #tab-kb { display: none; }
+        #tab-kb.show { display: block; }
         .panel { display: none; flex: 1; overflow: hidden; flex-direction: column; }
         .panel.active { display: flex; }
 
@@ -193,11 +225,34 @@
 
         /* 知识库分片面板 */
         .kb-panel { padding: 16px 20px; overflow-y: auto; }
+        .kb-section {
+            background: #fff;
+            border: 1px solid #ececf1;
+            border-radius: 10px;
+            padding: 16px 18px;
+            margin-bottom: 16px;
+        }
+        .kb-section h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .kb-section h3 .pill {
+            font-size: 11px;
+            font-weight: 500;
+            background: #eef1fe;
+            color: var(--primary);
+            padding: 1px 8px;
+            border-radius: 10px;
+        }
         .kb-toolbar {
             display: flex;
             gap: 10px;
             align-items: center;
-            margin-bottom: 16px;
             flex-wrap: wrap;
         }
         .kb-toolbar .hint {
@@ -213,22 +268,66 @@
             color: #fff;
             font-size: 14px;
             cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
         }
         .kb-btn.ghost {
             background: #fff;
             color: var(--primary);
             border: 1px solid var(--primary);
         }
-        .kb-btn:disabled { background: #b6c0f7; cursor: not-allowed; }
+        .kb-btn:disabled { background: #b6c0f7; cursor: not-allowed; border-color: #b6c0f7; }
+        .kb-btn.danger { background: #e5484d; }
+
+        /* 进度区 */
+        .kb-progress {
+            margin-top: 14px;
+            display: none;
+        }
+        .kb-progress.show { display: block; }
+        .progress-bar {
+            position: relative;
+            height: 8px;
+            background: #f0f0f4;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-bar .fill {
+            position: absolute;
+            top: 0; left: 0; bottom: 0;
+            width: 0%;
+            background: linear-gradient(90deg, #4f6ef7, #6a8bff);
+            transition: width 0.3s ease;
+        }
+        .progress-bar.indeterminate .fill {
+            width: 35% !important;
+            animation: indeterminate 1.4s ease-in-out infinite;
+        }
+        @keyframes indeterminate {
+            0%   { left: -35%; }
+            100% { left: 100%; }
+        }
+        .progress-text {
+            margin-top: 6px;
+            font-size: 12px;
+            color: #8a8f99;
+            display: flex;
+            justify-content: space-between;
+        }
         .kb-summary {
             font-size: 13px;
             color: #8a8f99;
-            margin-bottom: 12px;
+            margin: 8px 0 12px;
         }
+        .kb-summary.ok { color: #2da44e; }
+        .kb-summary.err { color: #e5484d; }
+
+        /* 分片预览 */
         .kb-file {
             border: 1px solid #ececf1;
             border-radius: 8px;
-            margin-bottom: 12px;
+            margin-bottom: 10px;
             overflow: hidden;
         }
         .kb-file-head {
@@ -240,8 +339,9 @@
             cursor: pointer;
             display: flex;
             justify-content: space-between;
+            align-items: center;
         }
-        .kb-file-head .count { color: #8a8f99; font-weight: 400; }
+        .kb-file-head .count { color: #8a8f99; font-weight: 400; font-size: 12px; }
         .kb-chunk {
             padding: 12px 14px;
             border-top: 1px solid #f0f0f4;
@@ -259,18 +359,159 @@
         }
         .kb-chunk .content { white-space: pre-wrap; word-break: break-word; color: #3a3f47; }
         .kb-chunk .meta { margin-top: 6px; font-size: 12px; color: #b0b5bf; }
+
+        /* 配置区 */
+        .config-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px 14px;
+        }
+        .config-grid label {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 12px;
+            color: #5b6270;
+        }
+        .config-grid input, .config-grid select {
+            padding: 8px 10px;
+            border: 1px solid #e0e0e6;
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+        }
+        .config-grid input:focus, .config-grid select:focus { border-color: var(--primary); }
+        .config-actions {
+            margin-top: 12px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .config-actions .status {
+            font-size: 12px;
+            color: #8a8f99;
+        }
+        .config-actions .status.ok { color: #2da44e; }
+        .config-actions .status.err { color: #e5484d; }
+        .env-path {
+            font-size: 11px;
+            color: #b0b5bf;
+            margin-top: 6px;
+            word-break: break-all;
+        }
+
+        /* Toast 提示 */
+        .toast {
+            position: fixed;
+            top: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-12px);
+            background: #1f2329;
+            color: #fff;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 14px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            opacity: 0;
+            transition: opacity 0.2s, transform 0.2s;
+            z-index: 100;
+            pointer-events: none;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .toast.ok { background: #2da44e; }
+        .toast.err { background: #e5484d; }
+
+        /* 管理员登录弹层 */
+        .modal-mask {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.35);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+        }
+        .modal-mask.show { display: flex; }
+        .modal {
+            background: #fff;
+            border-radius: 12px;
+            width: 340px;
+            padding: 24px;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.18);
+        }
+        .modal h2 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .modal .sub {
+            font-size: 12px;
+            color: #8a8f99;
+            margin-bottom: 16px;
+        }
+        .modal input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #e0e0e6;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            margin-bottom: 6px;
+        }
+        .modal input:focus { border-color: var(--primary); }
+        .modal .err {
+            font-size: 12px;
+            color: #e5484d;
+            min-height: 18px;
+            margin-bottom: 10px;
+        }
+        .modal .btns {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        .modal .btns button {
+            padding: 8px 18px;
+            border-radius: 8px;
+            border: none;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .modal .btns .primary {
+            background: var(--primary);
+            color: #fff;
+        }
+        .modal .btns .primary:disabled { background: #b6c0f7; cursor: not-allowed; }
+        .modal .btns .cancel {
+            background: #fff;
+            color: #5b6270;
+            border: 1px solid #e0e0e6;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             企业内部知识库问答助手
-            <span class="token-badge" id="roundBadge">本轮: 0</span>
-            <span class="token-badge" id="tokenBadge">Tokens: 0</span>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span class="token-badge" id="roundBadge">本轮: 0</span>
+                <span class="token-badge" id="tokenBadge">Tokens: 0</span>
+                <span class="admin-icon" id="adminIcon" title="管理员入口">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="8" r="3.4"/>
+                        <path d="M5.2 19.5c.8-3.6 3.6-5.5 6.8-5.5s6 1.9 6.8 5.5"/>
+                    </svg>
+                </span>
+            </div>
         </div>
         <div class="tabs">
             <button id="tab-chat" class="active" onclick="switchTab('chat')">问答</button>
-            <button id="tab-kb" onclick="openKbTab()">🔒 知识库管理</button>
+            <button id="tab-kb" onclick="switchTab('kb')">🔒 知识库管理</button>
         </div>
 
         <!-- 聊天面板 -->
@@ -289,16 +530,109 @@
         <!-- 知识库分片面板 -->
         <div class="panel" id="panel-kb">
             <div class="kb-panel">
-                <div class="kb-toolbar">
-                    <input type="file" id="fileInput" webkitdirectory multiple style="display:none" />
-                    <button class="kb-btn" id="btnSelectDir">选择文件夹</button>
-                    <button class="kb-btn ghost" id="btnSplit" disabled>开始分片</button>
-                    <button class="kb-btn" id="btnIndex" disabled>向量化入库</button>
-                    <button class="kb-btn ghost" id="btnSplitToFile" disabled>分片并保存</button>
-                    <div class="hint" id="fileHint">支持选择文件夹，上传其中所有 .md / .txt 文档</div>
+                <!-- 1. 上传区 -->
+                <div class="kb-section">
+                    <h3>① 上传文档 <span class="pill">.md / .txt / .markdown</span></h3>
+                    <div class="kb-toolbar">
+                        <input type="file" id="fileInput" webkitdirectory multiple style="display:none" />
+                        <input type="file" id="fileInputFiles" multiple style="display:none" />
+                        <button class="kb-btn" id="btnSelectDir">📁 选择文件夹</button>
+                        <button class="kb-btn ghost" id="btnSelectFiles">📄 选择文件</button>
+                        <div class="hint" id="fileHint" style="margin:0; flex:1;">尚未选择文件</div>
+                    </div>
                 </div>
-                <div class="kb-summary" id="kbSummary"></div>
-                <div id="kbResult"></div>
+
+                <!-- 2. 一键处理区 -->
+                <div class="kb-section">
+                    <h3>② 解析并入库</h3>
+                    <div class="kb-toolbar">
+                        <button class="kb-btn" id="btnProcess" disabled>解析并保存到知识库</button>
+                        <button class="kb-btn ghost" id="btnProcessOnly" disabled>仅解析预览（不入库）</button>
+                        <div class="hint" style="margin:0; flex:1;">将自动：分片 → embedding 向量化 → 写入向量库</div>
+                    </div>
+                    <div class="kb-progress" id="progressBox">
+                        <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill"></div></div>
+                        <div class="progress-text">
+                            <span id="progressLabel">准备中...</span>
+                            <span id="progressPercent"></span>
+                        </div>
+                    </div>
+                    <div class="kb-summary" id="kbSummary"></div>
+                    <div id="kbResult"></div>
+                </div>
+
+                <!-- 3. 配置区 -->
+                <div class="kb-section">
+                    <h3>③ 配置 <span class="pill">敏感字段已脱敏</span></h3>
+                    <div class="config-grid">
+                        <label>LLM 服务
+                            <select id="cfg-llm-provider">
+                                <option value="deepseek">DeepSeek（OpenAI 兼容）</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="qwen">通义千问</option>
+                                <option value="hunyuan">混元</option>
+                                <option value="mock">Mock（无 Key 降级）</option>
+                            </select>
+                        </label>
+                        <label>LLM 模型
+                            <input type="text" id="cfg-llm-model" placeholder="deepseek-chat" />
+                        </label>
+                        <label>API Key（留空保持原值）
+                            <input type="password" id="cfg-llm-key" placeholder="sk-***" />
+                        </label>
+                        <label>Base URL
+                            <input type="text" id="cfg-llm-base" placeholder="https://api.deepseek.com" />
+                        </label>
+                        <label>Temperature
+                            <input type="number" id="cfg-llm-temp" step="0.1" min="0" max="2" />
+                        </label>
+                        <label>Embedding 模型
+                            <input type="text" id="cfg-emb-model" placeholder="BAAI/bge-small-zh-v1.5" />
+                        </label>
+                        <label>Embedding 设备
+                            <select id="cfg-emb-device">
+                                <option value="cpu">CPU</option>
+                                <option value="cuda">CUDA</option>
+                            </select>
+                        </label>
+                        <label>检索 Top-K
+                            <input type="number" id="cfg-topk" min="1" max="20" />
+                        </label>
+                        <label>相似度阈值
+                            <input type="number" id="cfg-threshold" step="0.05" min="0" max="1" />
+                        </label>
+                        <label>向量集合名
+                            <input type="text" id="cfg-collection" />
+                        </label>
+                        <label>知识库保存/加载路径
+                            <input type="text" id="cfg-persist-dir" placeholder="data/chroma" />
+                        </label>
+                        <label>管理员令牌（留空保持原值）
+                            <input type="password" id="cfg-admin-token" placeholder="••••" />
+                        </label>
+                    </div>
+                    <div class="config-actions">
+                        <button class="kb-btn" id="btnConfigSave">保存配置</button>
+                        <button class="kb-btn ghost" id="btnConfigReload">重新加载</button>
+                        <span class="status" id="configStatus"></span>
+                    </div>
+                    <div class="env-path" id="envPath"></div>
+                </div>
+            </div>
+        </div>
+        <div class="toast" id="toast"></div>
+
+        <!-- 管理员登录弹层 -->
+        <div class="modal-mask" id="adminModal">
+            <div class="modal">
+                <h2>管理员登录</h2>
+                <div class="sub">输入管理员令牌（X-Admin-Token）进入知识库管理</div>
+                <input type="password" id="adminTokenInput" placeholder="请输入令牌" autocomplete="off" />
+                <div class="err" id="adminModalErr"></div>
+                <div class="btns">
+                    <button class="cancel" id="adminModalCancel">取消</button>
+                    <button class="primary" id="adminModalOk">登录</button>
+                </div>
             </div>
         </div>
     </div>
@@ -309,39 +643,110 @@
         let adminToken = null;  // 仅保存在内存（刷新即失效），不落盘
 
         async function verifyAdminToken(token) {
-            // 用一次实际请求校验令牌：/kb/search 是 GET，返回 403 表示令牌无效
+            // 用轻量的 /kb/config（GET）校验令牌：不加载 embedding 模型，毫秒级返回。
+            // 返回 403 表示令牌无效；200 表示有效（或鉴权已关闭）。
             try {
-                const resp = await fetch("/kb/search?query=__probe__", {
+                const resp = await fetch("/kb/config", {
                     method: "GET",
                     headers: { "X-Admin-Token": token },
                 });
-                return resp.status !== 403;  // 非 403 即视为令牌有效（或鉴权已关闭）
+                return resp.status !== 403;
             } catch (e) {
                 return false;
             }
         }
 
+        // 打开管理员登录弹层
+        function showAdminModal() {
+            document.getElementById("adminModal").classList.add("show");
+            document.getElementById("adminTokenInput").value = "";
+            document.getElementById("adminModalErr").textContent = "";
+            document.getElementById("adminModalOk").disabled = false;
+            setTimeout(() => document.getElementById("adminTokenInput").focus(), 50);
+        }
+
+        function hideAdminModal() {
+            document.getElementById("adminModal").classList.remove("show");
+        }
+
+        async function doAdminLogin() {
+            const input = document.getElementById("adminTokenInput").value.trim();
+            const errEl = document.getElementById("adminModalErr");
+            const okBtn = document.getElementById("adminModalOk");
+            if (!input) {
+                errEl.textContent = "请输入令牌";
+                return;
+            }
+            okBtn.disabled = true;
+            errEl.textContent = "验证中...";
+            const ok = await verifyAdminToken(input);
+            if (!ok) {
+                errEl.textContent = "令牌无效，请重新输入";
+                okBtn.disabled = false;
+                return;
+            }
+            adminToken = input;
+            // 验证通过：右上角图标变绿，并显示「知识库管理」tab
+            const icon = document.getElementById("adminIcon");
+            icon.classList.add("logged");
+            icon.title = "管理员已登录，点击切换管理面板";
+            document.getElementById("tab-kb").classList.add("show");
+            hideAdminModal();
+            switchTab("kb");
+            loadConfig();  // 进入管理面板后加载配置
+        }
+
         async function openKbTab() {
             if (!adminToken) {
-                const input = prompt("请输入管理员令牌（X-Admin-Token）：", "");
-                if (!input) return;  // 取消
-                const ok = await verifyAdminToken(input.trim());
-                if (!ok) {
-                    alert("令牌无效或无权限访问管理接口。");
-                    return;
-                }
-                adminToken = input.trim();
+                showAdminModal();
+                return;
             }
             switchTab("kb");
         }
 
+        // 退出管理登录（切回问答时调用，清除令牌与可视化状态）
+        function logoutAdmin() {
+            adminToken = null;
+            const icon = document.getElementById("adminIcon");
+            icon.classList.remove("logged");
+            icon.title = "管理员入口";
+            document.getElementById("tab-kb").classList.remove("show");
+        }
+
         // ===== Tab 切换 =====
         function switchTab(name) {
+            // 切回问答面板时，自动退出管理登录（隐藏 kb tab）
+            if (name === "chat") {
+                logoutAdmin();
+            }
             document.getElementById("tab-chat").classList.toggle("active", name === "chat");
-            document.getElementById("tab-kb").classList.toggle("active", name === "kb");
+            const kbTab = document.getElementById("tab-kb");
+            // 只有已登录状态才允许显示 kb tab 的高亮
+            kbTab.classList.toggle("active", name === "kb" && kbTab.classList.contains("show"));
             document.getElementById("panel-chat").classList.toggle("active", name === "chat");
             document.getElementById("panel-kb").classList.toggle("active", name === "kb");
         }
+
+        // 管理员小图标点击：未登录弹窗输入；已登录则切换到管理面板
+        document.getElementById("adminIcon").addEventListener("click", () => {
+            if (adminToken) {
+                // 当前在聊天面板则进入管理；已在管理面板则回到聊天
+                const onKb = document.getElementById("panel-kb").classList.contains("active");
+                switchTab(onKb ? "chat" : "kb");
+            } else {
+                openKbTab();
+            }
+        });
+
+        // 登录弹层事件
+        document.getElementById("adminModalOk").addEventListener("click", doAdminLogin);
+        document.getElementById("adminModalCancel").addEventListener("click", hideAdminModal);
+        document.getElementById("adminModal").addEventListener("click", (e) => {
+            if (e.target === e.currentTarget) hideAdminModal();  // 点击遮罩关闭
+        });
+        document.getElementById("adminTokenInput").addEventListener("keydown", (e) => {
+            if (e.key === "Enter") { e.preventDefault(); doAdminLogin(); }
+        });
 
         // ===== 聊天 =====
         let sessionId = null;
@@ -584,37 +989,87 @@
         });
         addMsg("您好，我是企业内部知识库助手，请问有什么可以帮您？", "bot");
 
-        // ===== 知识库分片 =====
-        const fileInput = document.getElementById("fileInput");
+        // ===== 知识库管理（一体化流程） =====
+        const fileInput = document.getElementById("fileInput");           // 文件夹
+        const fileInputFiles = document.getElementById("fileInputFiles"); // 单/多文件
         const btnSelectDir = document.getElementById("btnSelectDir");
-        const btnSplit = document.getElementById("btnSplit");
-        const btnIndex = document.getElementById("btnIndex");
-        const btnSplitToFile = document.getElementById("btnSplitToFile");
+        const btnSelectFiles = document.getElementById("btnSelectFiles");
+        const btnProcess = document.getElementById("btnProcess");
+        const btnProcessOnly = document.getElementById("btnProcessOnly");
         const fileHint = document.getElementById("fileHint");
         const kbSummary = document.getElementById("kbSummary");
         const kbResult = document.getElementById("kbResult");
+        const progressBox = document.getElementById("progressBox");
+        const progressBar = document.getElementById("progressBar");
+        const progressFill = document.getElementById("progressFill");
+        const progressLabel = document.getElementById("progressLabel");
+        const progressPercent = document.getElementById("progressPercent");
+        const toast = document.getElementById("toast");
 
-        btnSelectDir.addEventListener("click", () => fileInput.click());
-
-        function setBusy(busy) {
-            btnSplit.disabled = busy;
-            btnIndex.disabled = busy;
-            btnSplitToFile.disabled = busy;
-        }
-
-        fileInput.addEventListener("change", () => {
-            const files = Array.from(fileInput.files);
-            if (!files.length) return;
-            fileHint.textContent = `已选择 ${files.length} 个文件`;
-            btnSplit.disabled = false;
-            btnIndex.disabled = false;
-            btnSplitToFile.disabled = false;
-        });
-
+        // 选定文件后合并到同一个 FormData
         function buildFormData() {
             const fd = new FormData();
-            Array.from(fileInput.files).forEach((f) => fd.append("files", f));
+            const inputs = [fileInput, fileInputFiles];
+            for (const inp of inputs) {
+                if (inp && inp.files) {
+                    Array.from(inp.files).forEach((f) => fd.append("files", f));
+                }
+            }
             return fd;
+        }
+
+        function countSelected() {
+            const a = fileInput.files ? fileInput.files.length : 0;
+            const b = fileInputFiles.files ? fileInputFiles.files.length : 0;
+            return a + b;
+        }
+
+        function refreshFileState() {
+            const n = countSelected();
+            if (n === 0) {
+                fileHint.textContent = "尚未选择文件";
+                btnProcess.disabled = true;
+                btnProcessOnly.disabled = true;
+            } else {
+                fileHint.textContent = `已选择 ${n} 个文件，可点击下方按钮开始处理`;
+                btnProcess.disabled = false;
+                btnProcessOnly.disabled = false;
+            }
+        }
+
+        btnSelectDir.addEventListener("click", () => fileInput.click());
+        btnSelectFiles.addEventListener("click", () => fileInputFiles.click());
+        fileInput.addEventListener("change", refreshFileState);
+        fileInputFiles.addEventListener("change", refreshFileState);
+
+        // 进度条控制
+        function showProgress(percent, label) {
+            progressBox.classList.add("show");
+            progressBar.classList.remove("indeterminate");
+            progressFill.style.width = `${percent}%`;
+            progressLabel.textContent = label;
+            progressPercent.textContent = `${percent}%`;
+        }
+        function showIndeterminate(label) {
+            progressBox.classList.add("show");
+            progressBar.classList.add("indeterminate");
+            progressFill.style.width = "35%";
+            progressLabel.textContent = label;
+            progressPercent.textContent = "处理中...";
+        }
+        function hideProgress() {
+            progressBox.classList.remove("show");
+        }
+
+        // Toast
+        let toastTimer = null;
+        function showToast(msg, type) {
+            toast.textContent = msg;
+            toast.className = "toast show " + (type || "");
+            if (toastTimer) clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => {
+                toast.classList.remove("show");
+            }, 2600);
         }
 
         // 构造带管理员令牌的请求头
@@ -628,8 +1083,10 @@
         async function adminFetch(url, opts) {
             const resp = await fetch(url, opts);
             if (resp.status === 403) {
-                adminToken = null;  // 令牌失效，要求重新登录
-                throw new Error("权限不足：管理员令牌无效或已失效，请重新登录。");
+                adminToken = null;  // 令牌失效
+                document.getElementById("adminIcon").classList.remove("logged");
+                document.getElementById("tab-kb").classList.remove("show");
+                throw new Error("权限不足：管理员令牌无效，请重新登录。");
             }
             if (!resp.ok) {
                 let detail = "";
@@ -639,61 +1096,63 @@
             return resp;
         }
 
-        async function doSplit(saveToFile) {
-            if (!fileInput.files.length) return;
-            setBusy(true);
-            kbSummary.textContent = "分片中...";
+        // 一体化流程：上传 → 解析 → 入库（index 接口一次完成）
+        async function processFiles(onlySplit) {
+            const n = countSelected();
+            if (n === 0) return;
+            btnProcess.disabled = true;
+            btnProcessOnly.disabled = true;
+            kbResult.innerHTML = "";
+            kbSummary.className = "kb-summary";
+            showIndeterminate(onlySplit ? "正在解析分片..." : "正在解析并入库（含 embedding）...");
             try {
-                // 分片并保存：显式请求 save=true（仅管理员、且落盘需主动开启）
-                const url = saveToFile ? "/kb/split-to-file?save=true" : "/kb/split";
+                const url = onlySplit ? "/kb/split" : "/kb/index";
                 const resp = await adminFetch(url, {
                     method: "POST",
                     headers: adminHeaders(),
                     body: buildFormData(),
                 });
                 const data = await resp.json();
-                renderChunks(data);
-            } catch (e) {
-                kbSummary.textContent = "分片失败：" + e.message;
-            } finally {
-                setBusy(false);
-            }
-        }
 
-        async function doIndex() {
-            if (!fileInput.files.length) return;
-            setBusy(true);
-            kbSummary.textContent = "向量化入库中（含 embedding 计算，可能较慢）...";
-            try {
-                const resp = await adminFetch("/kb/index", {
-                    method: "POST",
-                    headers: adminHeaders(),
-                    body: buildFormData(),
-                });
-                const data = await resp.json();
-                kbResult.innerHTML = "";
-                kbSummary.textContent =
-                    `入库完成 | 新增 ${data.indexed} 块，跳过重复 ${data.skipped} 块，` +
-                    `共 ${data.total_chunks} 块，集合：${data.collection}`;
+                if (onlySplit) {
+                    // 仅解析：显示分片预览
+                    kbSummary.className = "kb-summary ok";
+                    kbSummary.textContent =
+                        `解析完成 | 共 ${data.files.length} 个文件，${data.total_chunks} 个分片` +
+                        (data.output_dir ? ` | 已保存到: ${data.output_dir}` : "");
+                    renderChunks(data);
+                    showToast("解析完成", "ok");
+                } else {
+                    // 入库
+                    kbSummary.className = "kb-summary ok";
+                    kbSummary.textContent =
+                        `入库完成 | 新增 ${data.indexed} 块，跳过重复 ${data.skipped} 块，` +
+                        `共 ${data.total_chunks} 块，集合：${data.collection}`;
+                    showProgress(100, "完成");
+                    showToast(`入库成功，新增 ${data.indexed} 块`, "ok");
+                }
             } catch (e) {
-                kbSummary.textContent = "入库失败，请重试。";
+                kbSummary.className = "kb-summary err";
+                kbSummary.textContent = "处理失败：" + e.message;
+                showToast("处理失败：" + e.message, "err");
             } finally {
-                setBusy(false);
+                hideProgress();
+                btnProcess.disabled = false;
+                btnProcessOnly.disabled = false;
             }
         }
 
         function renderChunks(data) {
             kbResult.innerHTML = "";
-            kbSummary.textContent = `共 ${data.files.length} 个文件，${data.total_chunks} 个分片` +
-                (data.output_dir ? ` | 已输出到: ${data.output_dir}` : "");
-
             data.files.forEach((fr) => {
                 const fileDiv = document.createElement("div");
                 fileDiv.className = "kb-file";
 
                 const head = document.createElement("div");
                 head.className = "kb-file-head";
-                head.innerHTML = `<span>${escapeHtml(fr.filename)}</span><span class="count">${fr.chunk_count} 块</span>`;
+                head.innerHTML =
+                    `<span>📄 ${escapeHtml(fr.filename)}</span>` +
+                    `<span class="count">${fr.chunk_count} 块</span>`;
                 fileDiv.appendChild(head);
 
                 fr.chunks.forEach((c) => {
@@ -712,15 +1171,100 @@
             });
         }
 
+        btnProcess.addEventListener("click", () => processFiles(false));
+        btnProcessOnly.addEventListener("click", () => processFiles(true));
+
+        // ===== 配置管理 =====
+        const cfgFields = {
+            "cfg-llm-provider": "llm.provider",
+            "cfg-llm-model":    "llm.model",
+            "cfg-llm-base":     "llm.baseUrl",
+            "cfg-llm-temp":     "llm.temperature",
+            "cfg-emb-model":    "embedding.model",
+            "cfg-emb-device":   "embedding.device",
+            "cfg-topk":         "retrieval.topK",
+            "cfg-threshold":    "retrieval.threshold",
+            "cfg-collection":   "vector_db.collection",
+        };
+        const cfgStatus = document.getElementById("configStatus");
+        const envPathEl = document.getElementById("envPath");
+
+        function setConfigStatus(msg, type) {
+            cfgStatus.textContent = msg;
+            cfgStatus.className = "status " + (type || "");
+        }
+
+        async function loadConfig() {
+            try {
+                const resp = await adminFetch("/kb/config", { headers: adminHeaders() });
+                const cfg = await resp.json();
+                document.getElementById("cfg-llm-provider").value = cfg.llm.provider;
+                document.getElementById("cfg-llm-model").value = cfg.llm.model;
+                document.getElementById("cfg-llm-base").value = cfg.llm.baseUrl;
+                document.getElementById("cfg-llm-temp").value = cfg.llm.temperature;
+                document.getElementById("cfg-llm-key").placeholder = "sk-***";
+                document.getElementById("cfg-emb-model").value = cfg.embedding.model;
+                document.getElementById("cfg-emb-device").value = cfg.embedding.device;
+                document.getElementById("cfg-topk").value = cfg.retrieval.topK;
+                document.getElementById("cfg-threshold").value = cfg.retrieval.threshold;
+                document.getElementById("cfg-collection").value = cfg.vector_db.collection;
+                document.getElementById("cfg-persist-dir").value = cfg.vector_db.persistDir;
+                document.getElementById("cfg-admin-token").placeholder = "••••";
+                envPathEl.textContent = `配置文件：${cfg.envPath}`;
+                setConfigStatus("已加载", "ok");
+            } catch (e) {
+                setConfigStatus("加载失败：" + e.message, "err");
+            }
+        }
+
+        async function saveConfig() {
+            const payload = {
+                llm_provider: document.getElementById("cfg-llm-provider").value,
+                llm_model: document.getElementById("cfg-llm-model").value,
+                llm_base_url: document.getElementById("cfg-llm-base").value,
+                llm_temperature: parseFloat(document.getElementById("cfg-llm-temp").value),
+                embedding_model: document.getElementById("cfg-emb-model").value,
+                embedding_device: document.getElementById("cfg-emb-device").value,
+                retrieval_top_k: parseInt(document.getElementById("cfg-topk").value, 10),
+                retrieval_threshold: parseFloat(document.getElementById("cfg-threshold").value),
+                vector_collection: document.getElementById("cfg-collection").value,
+                vector_persist_dir: document.getElementById("cfg-persist-dir").value.trim(),
+            };
+            // 密码字段：仅在非空时提交
+            const keyVal = document.getElementById("cfg-llm-key").value.trim();
+            const adminVal = document.getElementById("cfg-admin-token").value.trim();
+            if (keyVal) payload.llm_api_key = keyVal;
+            if (adminVal) payload.admin_token = adminVal;
+
+            setConfigStatus("保存中...", "");
+            try {
+                const resp = await adminFetch("/kb/config", {
+                    method: "PATCH",
+                    headers: adminHeaders({ "Content-Type": "application/json" }),
+                    body: JSON.stringify(payload),
+                });
+                setConfigStatus("已保存到 .env（无需重启）", "ok");
+                showToast("配置已保存", "ok");
+                // 清空密码输入框（已写入后端，避免回显）
+                document.getElementById("cfg-llm-key").value = "";
+                document.getElementById("cfg-admin-token").value = "";
+                // 重新加载以更新 placeholder
+                await loadConfig();
+            } catch (e) {
+                setConfigStatus("保存失败：" + e.message, "err");
+                showToast("保存失败：" + e.message, "err");
+            }
+        }
+
+        document.getElementById("btnConfigSave").addEventListener("click", saveConfig);
+        document.getElementById("btnConfigReload").addEventListener("click", loadConfig);
+
         function escapeHtml(s) {
             return String(s).replace(/[&<>"']/g, (c) => ({
                 "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
             }[c]));
         }
 
-        btnSplit.addEventListener("click", () => doSplit(false));
-        btnIndex.addEventListener("click", doIndex);
-        btnSplitToFile.addEventListener("click", () => doSplit(true));
     </script>
 </body>
 </html>

@@ -1,4 +1,8 @@
-"""安全合规：敏感词过滤、输出脱敏。"""
+"""安全合规：敏感词过滤、输出脱敏。
+
+Author: MADENG
+Reviewer: Li Rongdong
+"""
 from __future__ import annotations
 
 import re
@@ -28,16 +32,19 @@ _PLATE_RE = re.compile(
 _LANDLINE_RE = re.compile(r"(?<!\d)(0\d{2,3}-?\d{7,8})(?!\d)")
 
 
+# 手机号脱敏回调：保留前 3 后 4，中间 ****。
 def _mask_phone(m: "re.Match[str]") -> str:
     s = m.group()
     return s[:3] + "****" + s[-4:]
 
 
+# 身份证脱敏回调：保留前 6 后 4，中间 ********。
 def _mask_id_card(m: "re.Match[str]") -> str:
     s = m.group()
     return s[:6] + "********" + s[-4:]
 
 
+# 邮箱脱敏回调：local 保留前 2，***，完整 domain。
 def _mask_email(m: "re.Match[str]") -> str:
     s = m.group()
     local, _, domain = s.partition("@")
@@ -48,16 +55,19 @@ def _mask_email(m: "re.Match[str]") -> str:
     return f"{masked_local}@{domain}"
 
 
+# 银行卡脱敏回调：保留前 4 后 4，中间 ``**** ****``。
 def _mask_bank_card(m: "re.Match[str]") -> str:
     s = m.group()
     return s[:4] + " **** **** " + s[-4:]
 
 
+# 车牌脱敏回调：保留省份 + 末位，中间用 * 替换。
 def _mask_plate(m: "re.Match[str]") -> str:
     s = m.group()
     return s[:2] + "*" * (len(s) - 3) + s[-1:]
 
 
+# 座机号脱敏回调：区号 + -****- + 末 4 位。
 def _mask_landline(m: "re.Match[str]") -> str:
     s = m.group()
     digits = s.replace("-", "")
@@ -67,8 +77,15 @@ def _mask_landline(m: "re.Match[str]") -> str:
     return f"{area}-****-{tail}"
 
 
+# 检查是否命中敏感词。
+#
+# Args:
+#     text: 待检查文本。
+#     sensitive_words: 敏感词列表。
+#
+# Returns:
+#     命中的第一个敏感词；未命中返回 ``None``。
 def contains_sensitive(text: str, sensitive_words: list[str]) -> str | None:
-    """检查是否命中敏感词，命中则返回命中的词，否则返回 None。"""
     if not sensitive_words:
         return None
     for word in sensitive_words:
@@ -77,12 +94,18 @@ def contains_sensitive(text: str, sensitive_words: list[str]) -> str | None:
     return None
 
 
+# 对手机号、身份证、邮箱、银行卡、车牌、座机号做打码。
+#
+# Args:
+#     text: 待脱敏文本。
+#
+# Returns:
+#     脱敏后的文本。
+#
+# Notes:
+#     顺序：先处理带格式的（邮箱、车牌、座机），再处理纯数字
+#     （身份证、银行卡、手机号），避免银行卡匹配覆盖身份证等场景。
 def desensitize(text: str) -> str:
-    """对手机号、身份证、邮箱、银行卡、车牌、座机号做打码。
-
-    顺序：先处理带格式的（邮箱、车牌、座机），再处理纯数字
-    （身份证、银行卡、手机号），避免银行卡匹配覆盖身份证等场景。
-    """
     if not text:
         return text
     text = _EMAIL_RE.sub(_mask_email, text)
@@ -94,15 +117,18 @@ def desensitize(text: str) -> str:
     return text
 
 
+# 对用户提问做合规检查。
+#
+# Args:
+#     question: 用户提问。
+#     sensitive_words: 敏感词列表。
+#
+# Returns:
+#     ``(是否放行, 命中敏感词)``。放行为 False 时表示需拦截。
 def check_compliance(
     question: str,
     sensitive_words: list[str],
 ) -> tuple[bool, str | None]:
-    """对用户提问做合规检查。
-
-    Returns:
-        (是否放行, 命中敏感词)。放行为 False 时表示需拦截。
-    """
     hit = contains_sensitive(question, sensitive_words)
     if hit:
         return False, hit

@@ -4,6 +4,9 @@
 - 业务类 → 走 RAG 检索。
 
 实现：基于本地关键词 + 简单规则，无需 LLM 调用，毫秒级响应。
+
+Author: MADENG
+Reviewer: Li Rongdong
 """
 from __future__ import annotations
 
@@ -51,14 +54,16 @@ _GREETING_REPLIES: dict[str, str] = {
 }
 
 
+# 分类用户输入。
+#
+# Args:
+#     question: 用户输入。
+#
+# Returns:
+#     ``(intent, reply)`` 二元组：
+#       - intent: ``"chat"``（闲聊）/ ``"query"``（业务查询）
+#       - reply: 若为闲聊，返回预设回复；业务查询时为 ``None``
 def classify(question: str) -> tuple[str, str | None]:
-    """分类用户输入。
-
-    Returns:
-        (intent, reply)
-        - intent: "chat"（闲聊）/ "query"（业务查询）
-        - reply: 若为闲聊，返回预设回复；业务查询时为 None
-    """
     q = question.strip()
     if not q or len(q) > 200:
         # 空或过长（可能是上下文中的复杂问题），交给 RAG 处理

@@ -2,6 +2,9 @@
 
 用法：
     uv run python -m scripts.build_index
+
+Author: MADENG
+Reviewer: Li Rongdong
 """
 from __future__ import annotations
 
@@ -11,9 +14,10 @@ from pathlib import Path
 from langchain_core.documents import Document
 
 from src.config import load_settings
-from src.knowledge.embeddings import build_embeddings
-from src.knowledge.loader import load_and_split
-from src.knowledge.vector_store import build_index
+from src.rag.core.embedder import build_embeddings
+from src.rag.core.loader import load_text
+from src.rag.core.splitter import split_markdown
+from src.rag.core.store import build_index
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
@@ -21,8 +25,14 @@ logger = logging.getLogger(__name__)
 DOCS_DIR = Path("data/docs")
 
 
+# 遍历目录下所有 md / txt 文件，切分为 Document。
+#
+# Args:
+#     docs_dir: 文档根目录。
+#
+# Returns:
+#     已切分的 Document 列表；目录不存在时返回空列表。
 def collect_docs(docs_dir: Path) -> list[Document]:
-    """遍历目录下所有 md / txt 文件，切分为 Document。"""
     if not docs_dir.exists():
         logger.warning("文档目录不存在：%s", docs_dir)
         return []
@@ -32,13 +42,15 @@ def collect_docs(docs_dir: Path) -> list[Document]:
         if path.suffix.lower() not in {".md", ".txt"}:
             continue
         logger.info("处理文档：%s", path)
-        for chunk in load_and_split(path):
+        text = load_text(path)
+        for chunk in split_markdown(text, source=str(path)):
             documents.append(
                 Document(page_content=chunk["content"], metadata=chunk["metadata"])
             )
     return documents
 
 
+# 脚本主入口。
 def main() -> None:
     settings = load_settings()
     documents = collect_docs(DOCS_DIR)
