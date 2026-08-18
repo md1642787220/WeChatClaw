@@ -14,6 +14,7 @@ Author: MADENG
 Reviewer: Li Rongdong
 """
 import logging
+import time
 
 from langchain_core.output_parsers import StrOutputParser
 
@@ -225,6 +226,7 @@ def stream_chat(settings: Settings, question, history):
         return
 
     # LLM 流式生成（不管有没有命中都过一遍 LLM，让助手角色自然回复）
+    # 最多重试 1 次，避免网络抖动导致一次性失败
     chat_model = make_chat_model(settings.llm, streaming=True)
     prompt_template = build_prompt(settings.llm.system_role)
     context_text = join_docs_as_context(doc_list)  # 没命中的时候是 "(无相关知识片段)"
@@ -233,25 +235,42 @@ def stream_chat(settings: Settings, question, history):
         context=context_text, history=history_text, question=question
     )
 
-    prompt_tokens = 0
-    completion_tokens = 0
-    for chunk in chat_model.stream(messages):
-        prompt_tokens, completion_tokens = _extract_token_usage(chunk, prompt_tokens, completion_tokens)
-        # content 可能是文字或列表，这里只取文字
-        content = ""
-        if hasattr(chunk, "content"):
-            content = chunk.content
-        else:
-            content = str(chunk)
-        if content:
-            yield {"type": "delta", "content": content}
+    max_retries = 1
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            prompt_tokens = 0
+            completion_tokens = 0
+            for chunk in chat_model.stream(messages):
+                prompt_tokens, completion_tokens = _extract_token_usage(chunk, prompt_tokens, completion_tokens)
+                # content 可能是文字或列表，这里只取文字
+                content = ""
+                if hasattr(chunk, "content"):
+                    content = chunk.content
+                else:
+                    content = str(chunk)
+                if content:
+                    yield {"type": "delta", "content": content}
 
-    yield {
-        "type": "done",
-        "sources": source_list,
-        "tokens": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens,
-        },
-    }
+            yield {
+                "type": "done",
+                "sources": source_list,
+                "tokens": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                },
+            }
+            return  # 成功了就直接结束，不走下面的重试
+        except Exception as err:
+            last_error = err
+            logger.warning(
+                "LLM 流式调用失败（第 %d/%d 次重试）：%s",
+                attempt, max_retries, err,
+            )
+            if attempt < max_retries:
+                # 等一秒再重试，给网络恢复的时间
+                time.sleep(1)
+
+    # 重试次数用完了还是失败，抛出异常让上层处理
+    raise RuntimeError(f"LLM 调用失败（已重试 {max_retries} 次）：{last_error}")

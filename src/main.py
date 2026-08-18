@@ -9,8 +9,11 @@ import json
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from typing import Optional
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -32,10 +35,10 @@ session_manager = SessionManager(max_rounds=settings.compliance.max_history_roun
 #
 # 属性：
 #     question: 用户提问（1~2000 字）。
-#     session_id: 可选会话 id，缺省时由服务端自动创建。
+#     session_id: 可选会话 id，缺省或为 null 时由服务端自动创建。
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
-    session_id: str = None
+    session_id: Optional[str] = None
 
 
 # 工具函数：把 dict 序列化成 SSE 事件字符串。
@@ -142,6 +145,25 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+# 把 FastAPI 请求体校验错误（422）转成可读的字符串 detail。
+#
+# 默认返回 {"detail": [{"type","loc","msg",...}, ...]}，前端直接拼接会显示
+# "[object Object]"。这里遍历错误列表，拼成 "字段路径: 错误信息" 的字符串。
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    parts = []
+    for err in exc.errors():
+        loc = err.get("loc", [])
+        # 去掉开头的 body/query/path 等来源标记，只保留字段名
+        field = ".".join(str(p) for p in loc if p not in ("body", "query", "path"))
+        msg = err.get("msg", "")
+        parts.append((field + ": " + msg) if field else msg)
+    message = "；".join(parts) if parts else "请求参数校验失败"
+    logger.warning("请求校验失败 | path=%s | %s", request.url.path, message)
+    return JSONResponse(status_code=422, content={"detail": message})
+
 
 # 知识库管理接口（上传 + 分片）
 app.include_router(kb_router)

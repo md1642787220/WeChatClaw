@@ -10,7 +10,7 @@ Reviewer: Li Rongdong
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from langchain_core.documents import Document
 from pydantic import BaseModel, Field
 
@@ -234,7 +234,7 @@ def _write_split_to_file(file_result, out_path):
 # 注意：
 #     需要管理员令牌（X-Admin-Token）。
 @router.post("/split", response_model=SplitResponse)
-async def split_uploaded(files, _=Depends(require_admin)):
+async def split_uploaded(files: list[UploadFile] = File(...), _=Depends(require_admin)):
     results = []
     total_chunks = 0
     for upload_file in files:
@@ -270,7 +270,11 @@ async def split_uploaded(files, _=Depends(require_admin)):
 # 注意：
 #     需要管理员令牌（X-Admin-Token）。
 @router.post("/split-to-file", response_model=SplitResponse)
-async def split_to_file(files, save=False, _=Depends(require_admin)):
+async def split_to_file(
+    files: list[UploadFile] = File(...),
+    save: bool = False,
+    _=Depends(require_admin),
+):
     response = await split_uploaded(files)
     if save:
         _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -299,7 +303,10 @@ async def split_to_file(files, save=False, _=Depends(require_admin)):
 #     重复内容按固定 ID 去重；入库成功后会让检索器缓存失效。
 #     需要管理员令牌（X-Admin-Token）。
 @router.post("/index", response_model=IndexResponse)
-async def index_uploaded(files, _=Depends(require_admin)):
+async def index_uploaded(
+    files: list[UploadFile] = File(...),
+    _=Depends(require_admin),
+):
     settings = read_settings()
 
     # 1. 分片

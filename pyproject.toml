@@ -27,6 +27,9 @@ rag = [
     "langgraph>=1.0",
     "chromadb>=1.0",
     "sentence-transformers>=5.0",
+    "pypdf>=4.0",
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
 ]
 
 dev = [

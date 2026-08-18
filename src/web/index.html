@@ -1079,6 +1079,28 @@
             return h;
         }
 
+        // 把后端返回的 detail 转成可读字符串。
+        // FastAPI 校验失败时 detail 可能是对象数组（含 loc/msg），
+        // 直接拼接会变成 "[object Object]"，这里统一转换。
+        function formatDetail(detail) {
+            if (detail == null || detail === "") return "";
+            if (typeof detail === "string") return detail;
+            if (Array.isArray(detail)) {
+                return detail.map(function (item) {
+                    if (item && typeof item === "object") {
+                        const loc = Array.isArray(item.loc) ? item.loc.join(".") : "";
+                        const msg = item.msg || item.message || "";
+                        return loc ? (loc + ": " + msg) : msg;
+                    }
+                    return String(item);
+                }).filter(Boolean).join("；");
+            }
+            if (typeof detail === "object") {
+                try { return JSON.stringify(detail); } catch (e) { return String(detail); }
+            }
+            return String(detail);
+        }
+
         // 统一处理 /kb/* 的鉴权失败
         async function adminFetch(url, opts) {
             const resp = await fetch(url, opts);
@@ -1091,7 +1113,7 @@
             if (!resp.ok) {
                 let detail = "";
                 try { detail = (await resp.json()).detail || ""; } catch (e) {}
-                throw new Error(detail || `请求失败(${resp.status})`);
+                throw new Error(formatDetail(detail) || `请求失败(${resp.status})`);
             }
             return resp;
         }
